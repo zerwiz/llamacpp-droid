@@ -25,3 +25,10 @@ contextBridge.exposeInMainWorld('docker', {
   stop: (containerName) => ipcRenderer.invoke('docker:stop', containerName),
   status: (containerName) => ipcRenderer.invoke('docker:status', containerName),
 });
+
+contextBridge.exposeInMainWorld('findGguf', () => ipcRenderer.invoke('find-gguf'));
+
+contextBridge.exposeInMainWorld('monitor', {
+  nvidiaSmi: () => ipcRenderer.invoke('monitor:nvidia-smi'),
+  top: () => ipcRenderer.invoke('monitor:top'),
+});

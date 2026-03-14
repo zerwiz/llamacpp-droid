@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
+# Update the app: pull latest code (if git repo) and refresh dependencies.
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-cd "$ROOT/systems/llamacpp-log-viewer"
 
-# Install dependencies
+if [ -d "$ROOT/.git" ]; then
+  echo "Pulling latest changes..."
+  git -C "$ROOT" pull --rebase 2>/dev/null || git -C "$ROOT" pull 2>/dev/null || true
+fi
+
+echo "Updating app dependencies..."
+cd "$ROOT/systems/llamacpp-log-viewer"
 npm install
 
-# Ensure app icon exists (use repo copy)
+# Refresh desktop entry (in case paths changed)
 ICON_SRC="$ROOT/systems/llamacpp-log-viewer/icon.png"
-if [ ! -f "$ICON_SRC" ]; then
-  echo "Warning: icon not found at $ICON_SRC"
-else
-  # Install .desktop file so launcher/taskbar can show the icon
+if [ -f "$ICON_SRC" ]; then
   APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
   mkdir -p "$APPS"
   DESKTOP="$APPS/llamacpp-droid.desktop"
@@ -25,5 +28,7 @@ Icon=$ICON_SRC
 Categories=Development;Utility;
 Terminal=false
 EOF
-  echo "Installed desktop entry: $DESKTOP"
+  echo "Updated desktop entry: $DESKTOP"
 fi
+
+echo "Update done. Run ./start.sh to launch."

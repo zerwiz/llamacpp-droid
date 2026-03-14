@@ -28,6 +28,32 @@ body {
   overflow: hidden;
 }
 
+.app-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.app-footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.app-footer a:hover {
+  text-decoration: underline;
+}
+
+.footer-tagline {
+  font-style: italic;
+}
+
 .header {
   display: flex;
   align-items: center;
@@ -72,8 +98,50 @@ body {
   overflow: hidden;
 }
 
-#panel-container {
+#container-panels .panel {
   overflow-y: auto;
+}
+
+#panel-monitor {
+  overflow-y: auto;
+}
+
+.monitor-page {
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.monitor-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.monitor-title {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.monitor-output {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+  max-height: 320px;
+  overflow: auto;
 }
 
 .panel.active {
@@ -109,12 +177,6 @@ body {
   max-width: 720px;
   margin: 0 auto;
   width: 100%;
-}
-
-.runner-card + .runner-card {
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border);
 }
 
 .runner-title {
@@ -200,6 +262,27 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.form-row-check {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 2px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .form-actions {
@@ -292,6 +375,69 @@ body {
 
 .btn-secondary:hover {
   background: var(--border);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: #ff6b6b;
+}
+
+.tab-add {
+  color: var(--accent);
+  margin-left: 8px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.btn-find-models {
+  margin-top: 6px;
+}
+
+.model-list-wrap {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 200px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.model-list-status {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.model-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 11px;
+}
+
+.model-list-item {
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-list-item:hover {
+  background: var(--border);
+  color: var(--accent);
 }
 
 .status {

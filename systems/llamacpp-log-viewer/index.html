@@ -13,178 +13,164 @@
       <span class="logo">◇</span>
       <h1>llamacpp droid</h1>
     </div>
-    <nav class="tabs">
-      <button type="button" class="tab active" data-tab="container">Container</button>
+    <nav class="tabs" id="nav">
+      <span id="container-tabs"></span>
+      <button type="button" class="tab tab-add" id="btnAddContainer" title="Add container">+ Add</button>
       <button type="button" class="tab" data-tab="logs">Logs</button>
+      <button type="button" class="tab" data-tab="monitor">Monitor</button>
     </nav>
   </header>
 
-  <section id="panel-container" class="panel active">
-    <div class="runner-card">
-      <h2 class="runner-title">Container 1</h2>
-      <div class="runner-status" id="containerStatus">Checking…</div>
-      <form id="runForm" class="runner-form">
-        <div class="form-row">
-          <label>Container name</label>
-          <input type="text" name="containerName" value="llamacpp" placeholder="llamacpp" spellcheck="false" />
+  <div id="panels-wrapper">
+    <div id="container-panels"></div>
+    <section id="panel-monitor" class="panel">
+      <div class="monitor-page">
+        <div class="monitor-block">
+          <h2 class="monitor-title">GPU — nvidia-smi</h2>
+          <pre class="monitor-output" id="monitorNvidiaSmi">Waiting…</pre>
         </div>
-        <div class="form-row">
-          <label>Image</label>
-          <input type="text" name="image" value="ghcr.io/ggml-org/llama.cpp:server-cuda" placeholder="ghcr.io/ggml-org/llama.cpp:server-cuda" spellcheck="false" />
+        <div class="monitor-block">
+          <h2 class="monitor-title">Processes — top</h2>
+          <pre class="monitor-output" id="monitorTop">Waiting…</pre>
         </div>
-        <div class="form-row two-cols">
-          <div>
-            <label>Host path (models)</label>
-            <input type="text" name="volumeHost" value="/home/zerwiz/.lmstudio/models" placeholder="/path/to/models" spellcheck="false" />
-          </div>
-          <div>
-            <label>Model path (in container)</label>
-            <input type="text" name="modelPath" value="/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q3_K_S.gguf" placeholder="/models/..." spellcheck="false" />
-          </div>
-        </div>
-        <div class="form-row three-cols">
-          <div>
-            <label>Host</label>
-            <input type="text" name="host" value="0.0.0.0" placeholder="0.0.0.0" />
-          </div>
-          <div>
-            <label>Port</label>
-            <input type="number" name="port" value="8080" min="1" max="65535" />
-          </div>
-          <div>
-            <label>ctx-size</label>
-            <input type="number" name="ctxSize" value="12000" min="512" />
-          </div>
-        </div>
-        <div class="form-row three-cols">
-          <div>
-            <label>n_gpu_layers (-ngl)</label>
-            <input type="number" name="ngl" value="99" min="0" />
-          </div>
-          <div>
-            <label>Memory</label>
-            <input type="text" name="memory" value="24g" placeholder="24g" />
-          </div>
-          <div>
-            <label>Memory swap</label>
-            <input type="text" name="memorySwap" value="32g" placeholder="32g" />
-          </div>
-        </div>
-        <div class="form-row two-cols">
-          <div>
-            <label>Restart</label>
-            <select name="restart">
-              <option value="always">always</option>
-              <option value="unless-stopped">unless-stopped</option>
-              <option value="no">no</option>
-            </select>
-          </div>
-          <div>
-            <label>Network</label>
-            <select name="network">
-              <option value="host">host</option>
-              <option value="bridge">bridge</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary" id="btnRun">Run container</button>
-          <button type="button" class="btn btn-secondary" id="btnStop">Stop container</button>
-        </div>
-      </form>
-      <div class="runner-message" id="runMessage"></div>
-    </div>
+      </div>
+    </section>
+    <section id="panel-logs" class="panel">
+      <div class="log-toolbar">
+        <label class="container-label">
+          Container
+          <input type="text" id="logContainerName" value="llamacpp" placeholder="llamacpp" spellcheck="false" />
+        </label>
+        <button type="button" id="btnToggle" class="btn btn-primary">Start stream</button>
+        <button type="button" id="btnClear" class="btn btn-secondary">Clear</button>
+      </div>
+      <div class="status" id="status"></div>
+      <main class="log-container">
+        <pre class="log-output" id="logOutput"></pre>
+      </main>
+    </section>
+  </div>
 
-    <div class="runner-card">
-      <h2 class="runner-title">Container 2 (another)</h2>
-      <div class="runner-status" id="containerStatus2">Checking…</div>
-      <form id="runForm2" class="runner-form">
-        <div class="form-row">
-          <label>Container name</label>
-          <input type="text" name="containerName" value="llamacpp2" placeholder="llamacpp2" spellcheck="false" />
-        </div>
-        <div class="form-row">
-          <label>Image</label>
-          <input type="text" name="image" value="ghcr.io/ggml-org/llama.cpp:server-cuda" placeholder="ghcr.io/ggml-org/llama.cpp:server-cuda" spellcheck="false" />
-        </div>
-        <div class="form-row two-cols">
-          <div>
-            <label>Host path (models)</label>
-            <input type="text" name="volumeHost" value="/home/zerwiz/.lmstudio/models" placeholder="/path/to/models" spellcheck="false" />
+  <template id="container-panel-template">
+    <section class="panel container-panel" data-container-id="">
+      <div class="runner-card">
+        <div class="runner-status">Checking…</div>
+        <form class="runner-form">
+          <div class="form-row two-cols">
+            <div>
+              <label>Tab name</label>
+              <input type="text" name="tabName" placeholder="e.g. llamacpp" spellcheck="false" title="Name shown on the tab" />
+            </div>
+            <div>
+              <label>Container name</label>
+              <input type="text" name="containerName" placeholder="llamacpp" spellcheck="false" title="Docker container name" />
+            </div>
           </div>
-          <div>
-            <label>Model path (in container)</label>
-            <input type="text" name="modelPath" value="/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q3_K_S.gguf" placeholder="/models/..." spellcheck="false" />
+          <div class="form-row">
+            <label>Image</label>
+            <input type="text" name="image" value="ghcr.io/ggml-org/llama.cpp:server-cuda" placeholder="ghcr.io/ggml-org/llama.cpp:server-cuda" spellcheck="false" />
           </div>
-        </div>
-        <div class="form-row three-cols">
-          <div>
-            <label>Host</label>
-            <input type="text" name="host" value="0.0.0.0" placeholder="0.0.0.0" />
+          <div class="form-row two-cols">
+            <div>
+              <label>Host path (models)</label>
+              <input type="text" name="volumeHost" value="/home/zerwiz/.lmstudio/models" placeholder="/path/to/models" spellcheck="false" />
+            </div>
+            <div>
+              <label>Model path (in container)</label>
+              <input type="text" name="modelPath" value="/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q3_K_S.gguf" placeholder="/models/..." spellcheck="false" />
+              <button type="button" class="btn btn-secondary btn-find-models">Find models</button>
+              <div class="model-list-wrap hidden">
+                <div class="model-list-status"></div>
+                <ul class="model-list"></ul>
+              </div>
+            </div>
           </div>
-          <div>
-            <label>Port</label>
-            <input type="number" name="port" value="8081" min="1" max="65535" />
+          <div class="form-row three-cols">
+            <div>
+              <label>Host</label>
+              <input type="text" name="host" value="0.0.0.0" placeholder="0.0.0.0" />
+            </div>
+            <div>
+              <label>Port</label>
+              <input type="number" name="port" min="1" max="65535" />
+            </div>
+            <div>
+              <label>ctx-size</label>
+              <input type="number" name="ctxSize" value="12000" min="512" />
+            </div>
           </div>
-          <div>
-            <label>ctx-size</label>
-            <input type="number" name="ctxSize" value="12000" min="512" />
+          <div class="form-row three-cols">
+            <div>
+              <label>n_gpu_layers (-ngl)</label>
+              <input type="number" name="ngl" value="99" min="0" />
+            </div>
+            <div>
+              <label>Memory</label>
+              <input type="text" name="memory" value="24g" placeholder="24g" />
+            </div>
+            <div>
+              <label>Memory swap</label>
+              <input type="text" name="memorySwap" value="32g" placeholder="32g" />
+            </div>
           </div>
-        </div>
-        <div class="form-row three-cols">
-          <div>
-            <label>n_gpu_layers (-ngl)</label>
-            <input type="number" name="ngl" value="99" min="0" />
+          <div class="form-row three-cols">
+            <div>
+              <label>Threads (-t)</label>
+              <input type="number" name="threads" min="1" placeholder="default" title="Generation threads" />
+            </div>
+            <div>
+              <label>Threads batch (-tb)</label>
+              <input type="number" name="threadsBatch" min="1" placeholder="default" title="Batch/prompt threads" />
+            </div>
+            <div>
+              <label>Batch size (-b)</label>
+              <input type="number" name="batchSize" min="1" placeholder="512" title="Prompt batch size" />
+            </div>
           </div>
-          <div>
-            <label>Memory</label>
-            <input type="text" name="memory" value="24g" placeholder="24g" />
+          <div class="form-row two-cols">
+            <div>
+              <label>Parallel slots (-np)</label>
+              <input type="number" name="parallel" min="1" placeholder="1" title="Slots for parallel requests" />
+            </div>
+            <div class="form-row-check">
+              <label class="checkbox-label">
+                <input type="checkbox" name="contBatching" />
+                <span>Continuous batching (-cb)</span>
+              </label>
+            </div>
           </div>
-          <div>
-            <label>Memory swap</label>
-            <input type="text" name="memorySwap" value="32g" placeholder="32g" />
+          <div class="form-row two-cols">
+            <div>
+              <label>Restart</label>
+              <select name="restart">
+                <option value="always">always</option>
+                <option value="unless-stopped">unless-stopped</option>
+                <option value="no">no</option>
+              </select>
+            </div>
+            <div>
+              <label>Network</label>
+              <select name="network">
+                <option value="host">host</option>
+                <option value="bridge">bridge</option>
+              </select>
+            </div>
           </div>
-        </div>
-        <div class="form-row two-cols">
-          <div>
-            <label>Restart</label>
-            <select name="restart">
-              <option value="always">always</option>
-              <option value="unless-stopped">unless-stopped</option>
-              <option value="no">no</option>
-            </select>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Run container</button>
+            <button type="button" class="btn btn-secondary btn-stop">Stop container</button>
+            <button type="button" class="btn btn-danger btn-delete">Delete container</button>
           </div>
-          <div>
-            <label>Network</label>
-            <select name="network">
-              <option value="host">host</option>
-              <option value="bridge">bridge</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary" id="btnRun2">Run container</button>
-          <button type="button" class="btn btn-secondary" id="btnStop2">Stop container</button>
-        </div>
-      </form>
-      <div class="runner-message" id="runMessage2"></div>
-    </div>
-  </section>
+        </form>
+        <div class="runner-message"></div>
+      </div>
+    </section>
+  </template>
 
-  <section id="panel-logs" class="panel">
-    <div class="log-toolbar">
-      <label class="container-label">
-        Container
-        <input type="text" id="containerName" value="llamacpp" placeholder="llamacpp" spellcheck="false" />
-      </label>
-      <button type="button" id="btnToggle" class="btn btn-primary">Start stream</button>
-      <button type="button" id="btnClear" class="btn btn-secondary">Clear</button>
-    </div>
-    <div class="status" id="status"></div>
-    <main class="log-container">
-      <pre class="log-output" id="logOutput"></pre>
-    </main>
-  </section>
+  <footer class="app-footer">
+    <span class="footer-dev">Developer: <a href="https://whynotproductions.netlify.app/" target="_blank" rel="noopener noreferrer">Zerwiz</a></span>
+    <span class="footer-tagline">Movement over ego. Collaboration over competition. Action over perfection.</span>
+  </footer>
 
   <script src="renderer.js"></script>
 </body>

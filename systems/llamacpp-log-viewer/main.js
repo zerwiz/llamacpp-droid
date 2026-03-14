@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage, shell } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -27,6 +27,21 @@ function dockerRun(config) {
   ];
   if (config.modelPath && String(config.modelPath).trim()) {
     dockerArgs.push('-m', String(config.modelPath).trim());
+  }
+  if (config.threads != null && config.threads !== '') {
+    dockerArgs.push('-t', String(config.threads));
+  }
+  if (config.threadsBatch != null && config.threadsBatch !== '') {
+    dockerArgs.push('-tb', String(config.threadsBatch));
+  }
+  if (config.batchSize != null && config.batchSize !== '') {
+    dockerArgs.push('-b', String(config.batchSize));
+  }
+  if (config.parallel != null && config.parallel !== '') {
+    dockerArgs.push('-np', String(config.parallel));
+  }
+  if (config.contBatching) {
+    dockerArgs.push('-cb');
   }
   return spawn('docker', dockerArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 }
@@ -78,6 +93,12 @@ function createWindow() {
   }
 
   mainWindow.loadFile('index.html');
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
   mainWindow.on('closed', () => {
     stopStream();
     mainWindow = null;
@@ -170,6 +191,49 @@ ipcMain.handle('docker:stop', async (_, containerName) => {
 ipcMain.handle('docker:status', async (_, containerName) => {
   return dockerInspect(containerName || 'llamacpp');
 });
+
+ipcMain.handle('find-gguf', () => {
+  return new Promise((resolve) => {
+    const child = spawn('sh', ['-c', 'find "$HOME" -name "*.gguf" 2>/dev/null'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    let out = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (c) => { out += c; });
+    child.on('close', (code) => {
+      const paths = out.split('\n').map((p) => p.trim()).filter(Boolean);
+      resolve({ paths });
+    });
+    child.on('error', (err) => resolve({ paths: [], error: err.message }));
+  });
+});
+
+function runCommand(cmd, args, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (c) => { stdout += c; });
+    child.stderr.on('data', (c) => { stderr += c; });
+    const t = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve({ stdout, stderr, error: 'timeout' });
+    }, timeoutMs);
+    child.on('close', (code) => {
+      clearTimeout(t);
+      resolve({ stdout, stderr, error: code === 0 ? null : (stderr || 'exit ' + code) });
+    });
+    child.on('error', (err) => {
+      clearTimeout(t);
+      resolve({ stdout: '', stderr: '', error: err.message });
+    });
+  });
+}
+
+ipcMain.handle('monitor:nvidia-smi', () => runCommand('nvidia-smi', []));
+ipcMain.handle('monitor:top', () => runCommand('top', ['-b', '-n', '1']));
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());

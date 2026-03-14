@@ -25,6 +25,12 @@ Built with **Electron**. Linux (tested with `--no-sandbox` for environments with
 ./start.sh      # launch the app
 ```
 
+To update the app (pull latest code and refresh dependencies):
+
+```bash
+./update.sh
+```
+
 To stop the app from the command line:
 
 ```bash
@@ -53,6 +59,7 @@ To stop the app from the command line:
 | Path | Description |
 |------|-------------|
 | `install.sh` | Install app dependencies |
+| `update.sh` | Update app (git pull + npm install) |
 | `start.sh` | Start llamacpp droid |
 | `stop.sh` | Stop the running app |
 | `systems/llamacpp-log-viewer/` | Electron app (UI, docker run/stop/logs) |
