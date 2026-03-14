@@ -1,0 +1,17 @@
+{
+  "name": "llamacpp-droid",
+  "version": "1.0.0",
+  "description": "llamacpp droid — Electron app to run and view llama.cpp Docker containers",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron . --no-sandbox",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  }
+}
