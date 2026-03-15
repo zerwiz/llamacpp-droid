@@ -98,6 +98,12 @@ function dockerStop(containerName) {
   return spawn(rt, ['stop', containerName || 'llamacpp'], { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
+// Update container restart policy so it stays stopped (otherwise --restart always restarts it)
+function dockerUpdateRestartNo(containerName) {
+  const rt = getContainerRuntime();
+  return spawn(rt, ['update', '--restart=no', containerName || 'llamacpp'], { stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
 function dockerRm(containerName) {
   const rt = getContainerRuntime();
   return spawn(rt, ['rm', '-f', containerName || 'llamacpp'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -250,8 +256,19 @@ ipcMain.handle('docker:create', async (_, config) => {
 });
 
 ipcMain.handle('docker:stop', async (_, containerName) => {
+  const name = containerName || 'llamacpp';
+  // First set restart=no so the container stays stopped (default --restart always would restart it)
+  const updateDone = new Promise((resolve) => {
+    const p = dockerUpdateRestartNo(name);
+    let stderr = '';
+    p.stderr.on('data', (c) => { stderr += c; });
+    p.on('close', (code) => resolve({ ok: code === 0 }));
+    p.on('error', () => resolve({ ok: false }));
+  });
+  await updateDone;
+  // Then stop the container
   return new Promise((resolve) => {
-    const p = dockerStop(containerName || 'llamacpp');
+    const p = dockerStop(name);
     let stderr = '';
     p.stderr.on('data', (c) => { stderr += c; });
     p.on('close', (code) => {
@@ -392,6 +409,34 @@ function runCommand(cmd, args, timeoutMs = 8000) {
 
 ipcMain.handle('monitor:nvidia-smi', () => runCommand('nvidia-smi', []));
 ipcMain.handle('monitor:top', () => runCommand('top', ['-b', '-n', '1']));
+ipcMain.handle('monitor:memory', () => runCommand('free', ['-h']));
+ipcMain.handle('monitor:disk', () => runCommand('df', ['-h']));
+ipcMain.handle('monitor:container-stats', () => {
+  const rt = getContainerRuntime();
+  return runCommand(rt, ['stats', '--no-stream']);
+});
+ipcMain.handle('monitor:network', () => runCommand('ss', ['-tuln']));
+ipcMain.handle('monitor:gpu-query', () =>
+  runCommand('nvidia-smi', [
+    '--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw',
+    '--format=csv',
+  ]));
+ipcMain.handle('monitor:health', (_, url) => {
+  const base = (url || 'http://localhost:8080').replace(/\/+$/, '');
+  const healthUrl = base + '/health';
+  return runCommand('curl', ['-s', '--connect-timeout', '2', healthUrl], 3000);
+});
+ipcMain.handle('monitor:metrics', (_, url) => {
+  const base = (url || 'http://localhost:8080').replace(/\/+$/, '');
+  const metricsUrl = base + '/metrics';
+  return runCommand('curl', ['-s', '--connect-timeout', '2', metricsUrl], 5000);
+});
+ipcMain.handle('monitor:sensors', () => runCommand('sensors', []));
+ipcMain.handle('monitor:logs-tail', (_, containerName, tail) => {
+  const rt = getContainerRuntime();
+  const n = Math.min(Math.max(parseInt(tail, 10) || 30, 5), 200);
+  return runCommand(rt, ['logs', '--tail', String(n), containerName || 'llamacpp']);
+});
 
 ipcMain.handle('app:open-url', (_, url) => {
   if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
@@ -399,6 +444,45 @@ ipcMain.handle('app:open-url', (_, url) => {
     return { ok: true };
   }
   return { ok: false, error: 'Invalid URL' };
+});
+
+ipcMain.handle('app:open-rag-doc', () => {
+  const appRoot = path.join(app.getAppPath(), '..', '..');
+  const ragDoc = path.join(appRoot, 'docs', 'RAG.md');
+  if (!fs.existsSync(ragDoc)) {
+    return Promise.resolve({ ok: false, error: 'docs/RAG.md not found' });
+  }
+  return shell.openPath(ragDoc).then((err) => ({ ok: !err, error: err || null }));
+});
+
+// RAG: send query (and optional context) to the same llama.cpp server as the Web UI
+ipcMain.handle('rag:query', async (_, { serverUrl, query, context }) => {
+  const base = (serverUrl || 'http://localhost:8080').trim().replace(/\/+$/, '');
+  const url = base + '/v1/chat/completions';
+  const messages = [];
+  if (context && String(context).trim()) {
+    messages.push({ role: 'system', content: String(context).trim() });
+  }
+  messages.push({ role: 'user', content: String(query || '').trim() || 'Hello' });
+  const body = { model: 'llama', messages, stream: false };
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const errMsg = data.error?.message || data.message || res.statusText || `HTTP ${res.status}`;
+      return { ok: false, content: '', error: errMsg };
+    }
+    const content = data.choices?.[0]?.message?.content ?? '';
+    return { ok: true, content, error: null };
+  } catch (err) {
+    const msg = err.name === 'AbortError' ? 'Request timed out' : (err.message || String(err));
+    return { ok: false, content: '', error: msg };
+  }
 });
 
 ipcMain.handle('app:run-update', () => {

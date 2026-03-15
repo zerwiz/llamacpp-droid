@@ -34,9 +34,23 @@ contextBridge.exposeInMainWorld('findGguf', () => ipcRenderer.invoke('find-gguf'
 contextBridge.exposeInMainWorld('monitor', {
   nvidiaSmi: () => ipcRenderer.invoke('monitor:nvidia-smi'),
   top: () => ipcRenderer.invoke('monitor:top'),
+  memory: () => ipcRenderer.invoke('monitor:memory'),
+  disk: () => ipcRenderer.invoke('monitor:disk'),
+  containerStats: () => ipcRenderer.invoke('monitor:container-stats'),
+  network: () => ipcRenderer.invoke('monitor:network'),
+  gpuQuery: () => ipcRenderer.invoke('monitor:gpu-query'),
+  health: (url) => ipcRenderer.invoke('monitor:health', url),
+  metrics: (url) => ipcRenderer.invoke('monitor:metrics', url),
+  sensors: () => ipcRenderer.invoke('monitor:sensors'),
+  logsTail: (containerName, tail) => ipcRenderer.invoke('monitor:logs-tail', containerName, tail),
 });
 
 contextBridge.exposeInMainWorld('app', {
   openUrl: (url) => ipcRenderer.invoke('app:open-url', url),
   runUpdate: () => ipcRenderer.invoke('app:run-update'),
+  openRagDoc: () => ipcRenderer.invoke('app:open-rag-doc'),
+});
+
+contextBridge.exposeInMainWorld('rag', {
+  query: (serverUrl, query, context) => ipcRenderer.invoke('rag:query', { serverUrl, query, context }),
 });

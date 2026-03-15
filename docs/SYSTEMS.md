@@ -124,7 +124,7 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 - **`log-stream:stop`** — Calls `stopStream()` and returns `{ ok: true }`.
 - **`docker:run`** — Runs `runtime rm -f <name>` (ignores errors), then `runtime run -d` with the provided config (runtime = Docker or Podman). Resolves with `{ ok: true, stdout }` or `{ ok: false, error }`. This is “Run container” in the UI.
 - **`docker:create`** — Same as run but runs `runtime create` instead of `runtime run -d` (container is created but not started).
-- **`docker:stop`** — Runs `runtime stop <name>`. Resolves with `{ ok: true }` or `{ ok: false, error }`.
+- **`docker:stop`** — First runs `runtime update --restart=no <name>`, then `runtime stop <name>`, so the container stays stopped (see §8.1). Resolves with `{ ok: true }` or `{ ok: false, error }`.
 - **`docker:status`** — Returns the result of `dockerInspect(containerName)` (running true/false).
 - **`docker:runPreset`** — Builds a config from the preset name (`heavy` or `light`) and options (containerName, volumeHost, heavy/light model paths, ctx, ngl, cache type). **`presetConfig()`** in main builds the full Docker config for that preset (default image, host, port 8080, memory, etc.; heavy uses heavy model path, 20k ctx, ngl 42, KV cache q4_0; light uses light model path, 4k ctx, ngl 99). Then does `docker rm -f <name>` and `docker run -d` with that config. Resolves like `docker:run`.
 - **`find-gguf`** — Spawns `sh -c 'find "$HOME" -name "*.gguf" 2>/dev/null'`, collects stdout line by line, returns `{ paths: [...] }` (array of absolute paths). Used by “Find models” in the container form.
@@ -174,7 +174,7 @@ Links in the renderer that use `target="_blank"` are handled by the main process
   - **`#panel-swap`** — Swap tab: intro text, preset form (container name, volume host, heavy/light model paths, ctx, ngl, Heavy KV cache, context shift, cache reuse, cache RAM), buttons “Heavy …” and “Light …”, message div.
   - **`#panel-monitor`** — Two `<pre>` blocks: `#monitorNvidiaSmi` and `#monitorTop` (filled by renderer with command output).
   - **`#panel-logs`** — Container name input, “Start stream” / “Stop stream”, “Clear”, status line, `#logOutput` (pre) for log text.
-- **Template** `#container-panel-template`: one `<section>` with a form containing all container fields (tab name, container name, image, volume host, model path, Find models button, host, port, ctx-size, ngl, memory, restart, network, checkboxes, cache options, sleep idle, Create / Run / Stop / Delete buttons). Each new container is a clone of this template with a unique panel id and event listeners attached in the renderer.
+- **Template** `#container-panel-template`: one `<section>` with a form containing all container fields (tab name, container name, image, volume host, model path, Find models button, host, port, ctx-size, ngl, memory, restart, network, checkboxes, cache options, sleep idle, Create / Run / Stop / Delete / **Update** buttons). Each new container is a clone of this template with a unique panel id and event listeners attached in the renderer.
 - **Footer:** Developer link (Zerwiz), tagline. Links use `target="_blank"` and are opened in the system browser via the main process handler.
 
 ---
@@ -200,12 +200,27 @@ Links in the renderer that use `target="_blank"` are handled by the main process
 - **`loadSettings()`** — `localStorage.getItem(STORAGE_KEY)` → `JSON.parse`; returns null on missing or parse error.
 - **`mergeWithDefaults(saved, index)`** — Merges a saved container object with `getDefaultConfig(index)` so missing fields get defaults (used when restoring saved state or loading a profile).
 
-### 7.4 Monitor tab (nvidia-smi and top)
+### 7.4 Monitor tab
 
-- **`monitorIntervalNvidia`** / **`monitorIntervalTop`** — Interval IDs for the two polls.
-- **`startMonitor()`** — Clears any existing intervals. Defines `updateNvidia()` and `updateTop()`: each checks that the Monitor panel is active (`#panel-monitor.active`), then calls `window.monitor.nvidiaSmi()` or `window.monitor.top()` and writes the result into `#monitorNvidiaSmi` or `#monitorTop`. Runs once immediately, then `updateNvidia` every **1000 ms**, `updateTop` every **2000 ms**.
-- **`stopMonitor()`** — Clears both intervals and sets them to null.
-- **`showPanel(tabId)`** — Sets the active panel (adds/removes `.active` on panels and nav tabs). If `tabId === 'monitor'`, calls `startMonitor()`; otherwise calls `stopMonitor()` so polling only runs when the Monitor tab is visible.
+The Monitor tab shows live output from system and container commands (only while the tab is active). Toolbar inputs: **Server URL** (for health/metrics, default `http://localhost:8080`), **Container** (for logs tail, default `llamacpp`), **Tail lines** (5–200).
+
+| Block | Command / source | Poll interval |
+|-------|------------------|----------------|
+| **GPU — nvidia-smi** | `nvidia-smi` | 1 s |
+| **GPU — compact** | `nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw --format=csv` | 2 s |
+| **Containers — stats** | `docker stats --no-stream` / `podman stats --no-stream` | 2 s |
+| **Server health** | `curl -s &lt;Server URL&gt;/health` | 3 s |
+| **Server metrics** | `curl -s &lt;Server URL&gt;/metrics` (Prometheus; requires server `--metrics`) | 5 s |
+| **Network** | `ss -tuln` | 4 s |
+| **Memory — free** | `free -h` | 3 s |
+| **Disk — df** | `df -h` | 5 s |
+| **Temperature — sensors** | `sensors` (lm-sensors) | 5 s |
+| **Logs tail** | `docker logs --tail N &lt;Container&gt;` / `podman logs --tail N &lt;Container&gt;` | 3 s |
+| **Processes — top** | `top -b -n 1` | 2 s |
+
+- **`startMonitor()`** — Clears any existing intervals, runs each update once, then sets intervals. Each updater checks `#panel-monitor.active` and reads toolbar inputs where needed (server URL, container name, tail lines).
+- **`stopMonitor()`** — Clears all intervals so no commands run when the user leaves the tab.
+- **`showPanel(tabId)`** — If `tabId === 'monitor'`, calls `startMonitor()`; otherwise calls `stopMonitor()`.
 
 ### 7.5 Container tabs: add, remove, form actions
 
@@ -262,7 +277,7 @@ All of these are run in the **main process** via `spawn`:
 |-------------------|----------------------|
 | Run container     | `docker rm -f <name>` then `docker run -d` with args from `buildDockerContainerArgs(config)`. |
 | Create container  | `docker rm -f <name>` then `docker create` with same args (container not started). |
-| Stop container    | `docker stop <name>`. |
+| Stop container    | `docker update --restart=no <name>` then `docker stop <name>` (see §8.1). |
 | Container status  | `docker inspect --format '{{.State.Running}}' <name>`. |
 | Log stream        | `docker logs -f --tail 500 <name>`; stdout/stderr sent to renderer. |
 | Swap preset       | Same as run container with config from `presetConfig(..., 'heavy'|'light', ...)`. |
@@ -271,6 +286,25 @@ All of these are run in the **main process** via `spawn`:
 | Processes         | `top -b -n 1` (on demand, then every 2 s by renderer while Monitor tab active). |
 
 The app does not listen on any network port; it only spawns these commands and displays their output in the UI.
+
+### 8.1 Stop container and restart policy
+
+**Cause:** Containers are started with **`--restart always`** (from the form’s Restart field). When you click **Stop container**, the app used to run only `docker stop <name>`. The container stops, but Docker then restarts it because of the restart policy, so it looked like Stop did nothing.
+
+**Change:** Before stopping, the app now turns off the restart policy, then stops:
+
+1. **`docker update --restart=no <containerName>`** (or the same with Podman) — so the container is no longer set to restart.
+2. **`docker stop <containerName>`** — so the container stops and stays stopped.
+
+So when you click **Stop container**:
+
+- The container’s restart policy is set to **no**.
+- The container is stopped and **stays stopped** until you click **Run container** again (which will recreate it with `--restart always` again if that’s what the form has).
+
+**Code (main.js):**
+
+- Helper **`dockerUpdateRestartNo(containerName)`** runs `update --restart=no`.
+- The **`docker:stop`** IPC handler runs that update first, then runs the existing stop logic.
 
 ---
 
@@ -287,9 +321,9 @@ The app does not listen on any network port; it only spawns these commands and d
 | `start.sh`        | nohup npm start in app dir, disown; shows banner. |
 | `stop.sh`         | pkill Electron by app path (and fallbacks); shows banner. |
 | **App**           | |
-| `main.js`         | Window, IPC (log stream, docker run/create/stop/status/preset, find-gguf, monitor), Docker arg builder, presetConfig, runCommand, external links. |
-| `preload.js`      | contextBridge: logViewer, docker, findGguf, monitor. |
-| `index.html`      | Markup: header, profile UI, tabs, panel-swap, panel-monitor, panel-logs, container template, footer. |
+| `main.js`         | Window, IPC (log stream, docker run/create/stop/status/preset, find-gguf, monitor, app:open-url, app:open-rag-doc, app:run-update, **rag:query**), Docker arg builder, presetConfig, runCommand; **rag:query** POSTs to llama.cpp server /v1/chat/completions (same server as Web UI). |
+| `preload.js`      | contextBridge: logViewer, docker, findGguf, monitor, app (openUrl, openRagDoc, runUpdate), **rag** (query). |
+| `index.html`      | Markup: header, profile UI, tabs (containers, Logs, Swap, Monitor, **RAG**), panel-swap, panel-monitor, panel-logs, **panel-rag** (server URL, context, query, Send, response), container template, footer (Runtime, Install llama.cpp options, Update, Open Web UI). |
 | `renderer.js`     | Containers array, getConfig/getContainerSettings/getCurrentSettings, save/load/merge settings, add/remove container, profiles load/save/delete, monitor start/stop, showPanel, log stream UI, swap buttons, init from localStorage or defaults. |
 | `styles.css`      | Layout and styling for all panels and components. |
 | `icon.png`        | App icon (window and .desktop). |
@@ -301,4 +335,5 @@ The app does not listen on any network port; it only spawns these commands and d
 - **README.md** (root) — Quick start, prerequisites, high-level usage.
 - **docs/PLANNING.md** — Overview and scope.
 - **docs/GPU_AND_POWER.md** — GPU power and sleep-idle behaviour.
+- **docs/RAG.md** — RAG (Retrieval-Augmented Generation): framework evaluation and integration steps for adding RAG inside the app. The **RAG** footer button opens this doc.
 - **systems/llamacpp-log-viewer/README.md** — App-specific setup and run instructions.

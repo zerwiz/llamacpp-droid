@@ -124,7 +124,7 @@ ldroid uninstall
 | `start.sh` | Start llamacpp droid |
 | `stop.sh` | Stop the running app |
 | `systems/llamacpp-log-viewer/` | Electron app (UI, docker run/create/stop/logs, profiles, swap, monitor) |
-| `docs/` | Documentation: **SYSTEMS.md** (functionality), PLANNING.md (scope), GPU_AND_POWER.md |
+| `docs/` | Documentation: **SYSTEMS.md** (functionality), **ZED_IDE.md** (connect to Zed), **RAG.md** (RAG evaluation & integration), PLANNING.md, GPU_AND_POWER.md |
 
 ---
 

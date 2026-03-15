@@ -182,41 +182,177 @@ function mergeWithDefaults(saved, index) {
 
 let monitorIntervalNvidia = null;
 let monitorIntervalTop = null;
+let monitorIntervalMemory = null;
+let monitorIntervalDisk = null;
+let monitorIntervalContainerStats = null;
+let monitorIntervalNetwork = null;
+let monitorIntervalGpuQuery = null;
+let monitorIntervalHealth = null;
+let monitorIntervalMetrics = null;
+let monitorIntervalSensors = null;
+let monitorIntervalLogsTail = null;
 
 function startMonitor() {
   stopMonitor();
   const nvidiaEl = document.getElementById('monitorNvidiaSmi');
   const topEl = document.getElementById('monitorTop');
+  const memoryEl = document.getElementById('monitorMemory');
+  const diskEl = document.getElementById('monitorDisk');
+  const containerStatsEl = document.getElementById('monitorContainerStats');
+  const networkEl = document.getElementById('monitorNetwork');
+  const gpuQueryEl = document.getElementById('monitorGpuQuery');
+  const healthEl = document.getElementById('monitorHealth');
+  const metricsEl = document.getElementById('monitorMetrics');
+  const sensorsEl = document.getElementById('monitorSensors');
+  const logsTailEl = document.getElementById('monitorLogsTailOutput');
+
+  function isMonitorActive() {
+    return document.getElementById('panel-monitor').classList.contains('active');
+  }
+  function getMonitorServerUrl() {
+    const el = document.getElementById('monitorServerUrl');
+    return (el && el.value.trim()) || 'http://localhost:8080';
+  }
+  function getMonitorLogsContainer() {
+    const el = document.getElementById('monitorLogsContainer');
+    return (el && el.value.trim()) || 'llamacpp';
+  }
+  function getMonitorLogsTailLines() {
+    const el = document.getElementById('monitorLogsTailLines');
+    const n = parseInt(el && el.value ? el.value : 30, 10);
+    return isNaN(n) ? 30 : Math.min(200, Math.max(5, n));
+  }
+
   function updateNvidia() {
-    if (!nvidiaEl || !document.getElementById('panel-monitor').classList.contains('active')) return;
+    if (!nvidiaEl || !isMonitorActive()) return;
     window.monitor.nvidiaSmi().then((r) => {
       if (r.error) nvidiaEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
       else nvidiaEl.textContent = r.stdout || '(no output)';
     });
   }
   function updateTop() {
-    if (!topEl || !document.getElementById('panel-monitor').classList.contains('active')) return;
+    if (!topEl || !isMonitorActive()) return;
     window.monitor.top().then((r) => {
       if (r.error) topEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
       else topEl.textContent = (r.stdout || '(no output)').slice(0, 8000);
     });
   }
+  function updateMemory() {
+    if (!memoryEl || !isMonitorActive()) return;
+    window.monitor.memory().then((r) => {
+      if (r.error) memoryEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
+      else memoryEl.textContent = r.stdout || '(no output)';
+    });
+  }
+  function updateDisk() {
+    if (!diskEl || !isMonitorActive()) return;
+    window.monitor.disk().then((r) => {
+      if (r.error) diskEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
+      else diskEl.textContent = (r.stdout || '(no output)').slice(0, 4000);
+    });
+  }
+  function updateContainerStats() {
+    if (!containerStatsEl || !isMonitorActive()) return;
+    window.monitor.containerStats().then((r) => {
+      if (r.error) containerStatsEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
+      else containerStatsEl.textContent = r.stdout || '(no containers or runtime not available)';
+    });
+  }
+  function updateNetwork() {
+    if (!networkEl || !isMonitorActive()) return;
+    window.monitor.network().then((r) => {
+      if (r.error) networkEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
+      else networkEl.textContent = r.stdout || '(no output)';
+    });
+  }
+  function updateGpuQuery() {
+    if (!gpuQueryEl || !isMonitorActive()) return;
+    window.monitor.gpuQuery().then((r) => {
+      if (r.error) gpuQueryEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
+      else gpuQueryEl.textContent = r.stdout || '(no output)';
+    });
+  }
+  function updateHealth() {
+    if (!healthEl || !isMonitorActive()) return;
+    window.monitor.health(getMonitorServerUrl()).then((r) => {
+      if (r.error) healthEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
+      else healthEl.textContent = r.stdout || '(no response)';
+    });
+  }
+  function updateMetrics() {
+    if (!metricsEl || !isMonitorActive()) return;
+    window.monitor.metrics(getMonitorServerUrl()).then((r) => {
+      if (r.error) metricsEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
+      else metricsEl.textContent = (r.stdout || '(no response)').slice(0, 6000);
+    });
+  }
+  function updateSensors() {
+    if (!sensorsEl || !isMonitorActive()) return;
+    window.monitor.sensors().then((r) => {
+      if (r.error) sensorsEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '') + '\n(Install lm-sensors if needed.)';
+      else sensorsEl.textContent = r.stdout || '(no output)';
+    });
+  }
+  function updateLogsTail() {
+    if (!logsTailEl || !isMonitorActive()) return;
+    window.monitor.logsTail(getMonitorLogsContainer(), getMonitorLogsTailLines()).then((r) => {
+      if (r.error) logsTailEl.textContent = 'Error: ' + r.error + (r.stderr ? '\n' + r.stderr : '');
+      else logsTailEl.textContent = r.stdout || '(no output)';
+    });
+  }
+
   updateNvidia();
   updateTop();
+  updateMemory();
+  updateDisk();
+  updateContainerStats();
+  updateNetwork();
+  updateGpuQuery();
+  updateHealth();
+  updateMetrics();
+  updateSensors();
+  updateLogsTail();
   monitorIntervalNvidia = setInterval(updateNvidia, 1000);
   monitorIntervalTop = setInterval(updateTop, 2000);
+  monitorIntervalMemory = setInterval(updateMemory, 3000);
+  monitorIntervalDisk = setInterval(updateDisk, 5000);
+  monitorIntervalContainerStats = setInterval(updateContainerStats, 2000);
+  monitorIntervalNetwork = setInterval(updateNetwork, 4000);
+  monitorIntervalGpuQuery = setInterval(updateGpuQuery, 2000);
+  monitorIntervalHealth = setInterval(updateHealth, 3000);
+  monitorIntervalMetrics = setInterval(updateMetrics, 5000);
+  monitorIntervalSensors = setInterval(updateSensors, 5000);
+  monitorIntervalLogsTail = setInterval(updateLogsTail, 3000);
 }
 
 function stopMonitor() {
   if (monitorIntervalNvidia) clearInterval(monitorIntervalNvidia);
   if (monitorIntervalTop) clearInterval(monitorIntervalTop);
+  if (monitorIntervalMemory) clearInterval(monitorIntervalMemory);
+  if (monitorIntervalDisk) clearInterval(monitorIntervalDisk);
+  if (monitorIntervalContainerStats) clearInterval(monitorIntervalContainerStats);
+  if (monitorIntervalNetwork) clearInterval(monitorIntervalNetwork);
+  if (monitorIntervalGpuQuery) clearInterval(monitorIntervalGpuQuery);
+  if (monitorIntervalHealth) clearInterval(monitorIntervalHealth);
+  if (monitorIntervalMetrics) clearInterval(monitorIntervalMetrics);
+  if (monitorIntervalSensors) clearInterval(monitorIntervalSensors);
+  if (monitorIntervalLogsTail) clearInterval(monitorIntervalLogsTail);
   monitorIntervalNvidia = null;
   monitorIntervalTop = null;
+  monitorIntervalMemory = null;
+  monitorIntervalDisk = null;
+  monitorIntervalContainerStats = null;
+  monitorIntervalNetwork = null;
+  monitorIntervalGpuQuery = null;
+  monitorIntervalHealth = null;
+  monitorIntervalMetrics = null;
+  monitorIntervalSensors = null;
+  monitorIntervalLogsTail = null;
 }
 
 function showPanel(tabId) {
-  const panelId = tabId === 'logs' ? 'panel-logs' : tabId === 'monitor' ? 'panel-monitor' : tabId === 'swap' ? 'panel-swap' : 'panel-' + tabId;
-  document.querySelectorAll('#container-panels .panel, #panel-logs, #panel-swap, #panel-monitor').forEach((p) => {
+  const panelId = tabId === 'logs' ? 'panel-logs' : tabId === 'monitor' ? 'panel-monitor' : tabId === 'swap' ? 'panel-swap' : tabId === 'rag' ? 'panel-rag' : 'panel-' + tabId;
+  document.querySelectorAll('#container-panels .panel, #panel-logs, #panel-swap, #panel-monitor, #panel-rag').forEach((p) => {
     p.classList.toggle('active', p.id === panelId);
   });
   document.querySelectorAll('#nav .tab[data-tab]').forEach((b) => {
@@ -240,6 +376,7 @@ function addContainer(defaults) {
   const btnCreate = card.querySelector('.btn-create');
   const btnStop = card.querySelector('.btn-stop');
   const btnDelete = card.querySelector('.btn-delete');
+  const btnContainerUpdate = card.querySelector('.btn-container-update');
 
   section.id = 'panel-container-' + id;
   section.dataset.containerId = String(id);
@@ -432,6 +569,25 @@ function addContainer(defaults) {
     removeContainer(id);
   });
 
+  if (btnContainerUpdate && window.app && typeof window.app.runUpdate === 'function') {
+    btnContainerUpdate.addEventListener('click', async () => {
+      btnContainerUpdate.disabled = true;
+      setMessage('Updating…');
+      try {
+        const result = await window.app.runUpdate();
+        if (result.ok) {
+          setMessage('Update finished.', 'success');
+        } else {
+          setMessage((result.error || 'Update failed') + ' (Run ldroid update in a terminal if needed.)', 'error');
+        }
+      } catch (err) {
+        setMessage('Update error: ' + (err && err.message ? err.message : String(err)), 'error');
+      }
+      btnContainerUpdate.disabled = false;
+      setTimeout(() => setMessage(''), 8000);
+    });
+  }
+
   tabBtn.addEventListener('click', () => showPanel('container-' + id));
 
   let saveTimeout = null;
@@ -552,13 +708,14 @@ nav.addEventListener('click', (e) => {
   const tab = e.target.closest('.tab[data-tab]');
   if (!tab) return;
   const tabId = tab.dataset.tab;
-  if (tabId === 'logs' || tabId === 'monitor' || tabId === 'swap' || (tabId && tabId.startsWith('container-'))) {
+  if (tabId === 'logs' || tabId === 'monitor' || tabId === 'swap' || tabId === 'rag' || (tabId && tabId.startsWith('container-'))) {
     showPanel(tabId);
   }
 });
 
 // ---- Logs ----
 const logOutput = document.getElementById('logOutput');
+const logContainer = document.querySelector('.log-container');
 const btnToggle = document.getElementById('btnToggle');
 const btnClear = document.getElementById('btnClear');
 const logContainerName = document.getElementById('logContainerName');
@@ -574,8 +731,8 @@ function setStatus(msg, type = '') {
 function appendLog(chunk) {
   const text = typeof chunk === 'string' ? chunk : String(chunk);
   logOutput.textContent += text;
-  if (streaming) {
-    logOutput.scrollTop = logOutput.scrollHeight;
+  if (streaming && logContainer) {
+    logContainer.scrollTop = logContainer.scrollHeight;
   }
 }
 
@@ -827,6 +984,53 @@ if (btnInstallLlamacpp && window.app && typeof window.app.openUrl === 'function'
 }
 
 // Update: run update script and show result
+const btnOpenWebUi = document.getElementById('btnOpenWebUi');
+if (btnOpenWebUi && window.app && typeof window.app.openUrl === 'function') {
+  btnOpenWebUi.addEventListener('click', () => {
+    window.app.openUrl('http://localhost:8080');
+  });
+}
+
+// RAG panel — same server as Web UI
+const ragServerUrl = document.getElementById('ragServerUrl');
+const ragContext = document.getElementById('ragContext');
+const ragQuery = document.getElementById('ragQuery');
+const btnRagSend = document.getElementById('btnRagSend');
+const ragStatus = document.getElementById('ragStatus');
+const ragResponse = document.getElementById('ragResponse');
+const btnRagOpenWebui = document.querySelector('.btn-rag-open-webui');
+if (btnRagOpenWebui && ragServerUrl && window.app && typeof window.app.openUrl === 'function') {
+  btnRagOpenWebui.addEventListener('click', () => {
+    const url = (ragServerUrl.value || 'http://localhost:8080').trim();
+    if (url) window.app.openUrl(url);
+  });
+}
+if (btnRagSend && window.rag && typeof window.rag.query === 'function') {
+  btnRagSend.addEventListener('click', async () => {
+    const serverUrl = (ragServerUrl && ragServerUrl.value) ? ragServerUrl.value.trim() : 'http://localhost:8080';
+    const query = (ragQuery && ragQuery.value) ? ragQuery.value.trim() : '';
+    const context = (ragContext && ragContext.value) ? ragContext.value.trim() : '';
+    if (ragStatus) ragStatus.textContent = 'Sending…';
+    if (ragResponse) ragResponse.textContent = '';
+    btnRagSend.disabled = true;
+    try {
+      const result = await window.rag.query(serverUrl, query || 'Hello', context);
+      if (result.ok) {
+        if (ragResponse) ragResponse.textContent = result.content || '(no content)';
+        if (ragStatus) ragStatus.textContent = 'Done.';
+      } else {
+        if (ragResponse) ragResponse.textContent = 'Error: ' + (result.error || 'Unknown error');
+        if (ragStatus) ragStatus.textContent = '';
+      }
+    } catch (err) {
+      if (ragResponse) ragResponse.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+      if (ragStatus) ragStatus.textContent = '';
+    }
+    btnRagSend.disabled = false;
+    if (ragStatus) setTimeout(() => { ragStatus.textContent = ''; }, 4000);
+  });
+}
+
 const btnUpdate = document.getElementById('btnUpdate');
 const footerUpdateStatus = document.getElementById('footerUpdateStatus');
 if (btnUpdate && window.app && typeof window.app.runUpdate === 'function') {

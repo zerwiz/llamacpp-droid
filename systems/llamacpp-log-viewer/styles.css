@@ -158,6 +158,43 @@ body {
   margin: 0 auto;
 }
 
+.monitor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.monitor-toolbar-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.monitor-toolbar input[type="text"] {
+  width: 200px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.monitor-toolbar input[type="number"] {
+  width: 64px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+}
+
 .monitor-block {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -268,6 +305,107 @@ body {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
+}
+
+/* RAG panel — same server as Web UI */
+.rag-page {
+  padding: 20px 24px;
+  max-width: 720px;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+
+.rag-intro {
+  margin-bottom: 24px;
+}
+
+.rag-intro h2 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.rag-intro p {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rag-server-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.rag-server-row label {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.rag-server-row input {
+  flex: 1;
+  min-width: 200px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+.rag-query-card.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+
+.rag-query-card label {
+  display: block;
+  margin: 12px 0 6px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.rag-query-card label:first-of-type {
+  margin-top: 0;
+}
+
+.rag-query-card textarea {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  resize: vertical;
+}
+
+.rag-query-card #btnRagSend {
+  margin-top: 14px;
+}
+
+.rag-status {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.rag-response {
+  margin: 12px 0 0 0;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .panel.active {

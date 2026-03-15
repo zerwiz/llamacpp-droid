@@ -27,6 +27,7 @@
       <button type="button" class="tab" data-tab="logs">Logs</button>
       <button type="button" class="tab" data-tab="swap">Swap</button>
       <button type="button" class="tab" data-tab="monitor">Monitor</button>
+      <button type="button" class="tab" data-tab="rag">RAG</button>
     </nav>
   </header>
 
@@ -126,13 +127,79 @@
     </section>
     <section id="panel-monitor" class="panel">
       <div class="monitor-page">
+        <div class="monitor-toolbar">
+          <label class="monitor-toolbar-label">Server URL (health / metrics)</label>
+          <input type="text" id="monitorServerUrl" value="http://localhost:8080" placeholder="http://localhost:8080" spellcheck="false" title="Base URL for llama.cpp server health and Prometheus metrics" />
+          <label class="monitor-toolbar-label">Container (logs tail)</label>
+          <input type="text" id="monitorLogsContainer" value="llamacpp" placeholder="llamacpp" spellcheck="false" title="Container name for last N lines" />
+          <label class="monitor-toolbar-label">Tail lines</label>
+          <input type="number" id="monitorLogsTailLines" value="30" min="5" max="200" title="Number of last log lines" />
+        </div>
         <div class="monitor-block">
           <h2 class="monitor-title">GPU — nvidia-smi</h2>
           <pre class="monitor-output" id="monitorNvidiaSmi">Waiting…</pre>
         </div>
         <div class="monitor-block">
+          <h2 class="monitor-title">GPU — compact (name, memory, util, temp, power)</h2>
+          <pre class="monitor-output" id="monitorGpuQuery">Waiting…</pre>
+        </div>
+        <div class="monitor-block">
+          <h2 class="monitor-title">Containers — stats</h2>
+          <pre class="monitor-output" id="monitorContainerStats">Waiting…</pre>
+        </div>
+        <div class="monitor-block">
+          <h2 class="monitor-title">Server health</h2>
+          <pre class="monitor-output" id="monitorHealth">Waiting…</pre>
+        </div>
+        <div class="monitor-block">
+          <h2 class="monitor-title">Server metrics (Prometheus)</h2>
+          <pre class="monitor-output" id="monitorMetrics">Waiting…</pre>
+        </div>
+        <div class="monitor-block">
+          <h2 class="monitor-title">Network — listening (ss -tuln)</h2>
+          <pre class="monitor-output" id="monitorNetwork">Waiting…</pre>
+        </div>
+        <div class="monitor-block">
+          <h2 class="monitor-title">Memory — free</h2>
+          <pre class="monitor-output" id="monitorMemory">Waiting…</pre>
+        </div>
+        <div class="monitor-block">
+          <h2 class="monitor-title">Disk — df</h2>
+          <pre class="monitor-output" id="monitorDisk">Waiting…</pre>
+        </div>
+        <div class="monitor-block">
+          <h2 class="monitor-title">Temperature — sensors</h2>
+          <pre class="monitor-output" id="monitorSensors">Waiting…</pre>
+        </div>
+        <div class="monitor-block">
+          <h2 class="monitor-title">Logs tail (last N lines)</h2>
+          <pre class="monitor-output" id="monitorLogsTailOutput">Waiting…</pre>
+        </div>
+        <div class="monitor-block">
           <h2 class="monitor-title">Processes — top</h2>
           <pre class="monitor-output" id="monitorTop">Waiting…</pre>
+        </div>
+      </div>
+    </section>
+    <section id="panel-rag" class="panel">
+      <div class="rag-page">
+        <div class="rag-intro">
+          <h2>RAG — same server as Web UI</h2>
+          <p>RAG queries use the <strong>same llama.cpp server</strong> as the Web UI (Open Web UI button). Start your container, then use this panel to send document-backed queries to that server. When retrieval is added, context from your indexed documents will be injected automatically.</p>
+          <p class="rag-server-row">
+            <label>Server URL (same as Web UI)</label>
+            <input type="text" id="ragServerUrl" value="http://localhost:8080" placeholder="http://localhost:8080" spellcheck="false" title="Base URL of your running llama.cpp server" />
+            <button type="button" class="btn btn-secondary btn-rag-open-webui" title="Open this URL in browser">Open Web UI</button>
+          </p>
+        </div>
+        <div class="rag-query-card card">
+          <label for="ragContext">Additional context (optional — for now paste text; retrieval will fill this later)</label>
+          <textarea id="ragContext" rows="4" placeholder="Paste or leave empty. Future: retrieved document chunks will appear here." spellcheck="true"></textarea>
+          <label for="ragQuery">Your question</label>
+          <textarea id="ragQuery" rows="3" placeholder="Ask something…" spellcheck="true"></textarea>
+          <button type="button" class="btn btn-primary" id="btnRagSend">Send (RAG)</button>
+          <div class="rag-status" id="ragStatus" aria-live="polite"></div>
+          <pre class="rag-response" id="ragResponse"></pre>
         </div>
       </div>
     </section>
@@ -342,6 +409,7 @@
             <button type="submit" class="btn btn-primary">Run container</button>
             <button type="button" class="btn btn-secondary btn-stop">Stop container</button>
             <button type="button" class="btn btn-danger btn-delete">Delete container</button>
+            <button type="button" class="btn btn-secondary btn-container-update" title="Run app update (git pull + npm + launcher refresh)">Update</button>
           </div>
         </form>
         <div class="runner-message"></div>
@@ -353,6 +421,7 @@
     <span class="footer-runtime" id="footerRuntime" title="Container runtime (Docker or Podman)">Runtime: …</span>
     <button type="button" class="btn btn-footer btn-secondary" id="btnInstallLlamacpp" title="Open llama.cpp install and server options">Install llama.cpp options</button>
     <button type="button" class="btn btn-footer btn-secondary" id="btnUpdate" title="Run app update (git pull + npm + launcher refresh)">Update</button>
+    <button type="button" class="btn btn-footer btn-secondary" id="btnOpenWebUi" title="Open llama.cpp server Web UI in browser (default http://localhost:8080)">Open Web UI</button>
     <span class="footer-update-status" id="footerUpdateStatus" aria-live="polite"></span>
     <span class="footer-dev">Developer: <a href="https://whynotproductions.netlify.app/" target="_blank" rel="noopener noreferrer">Zerwiz</a></span>
     <span class="footer-tagline">Movement over ego. Collaboration over competition. Action over perfection.</span>
