@@ -6,8 +6,8 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 
 ## 1. Overview
 
-- **llamacpp droid** is a desktop app (Electron) that runs and manages [llama.cpp](https://github.com/ggml-org/llama.cpp) Docker containers and streams their logs from one UI.
-- The app does **not** run a web server. The **main process** runs all external commands (Docker, `nvidia-smi`, `top`, `find`); the **renderer** (front-end) only talks to the main process via IPC and never executes shell commands itself.
+- **llamacpp droid** is a desktop app (Electron) that runs and manages [llama.cpp](https://github.com/ggml-org/llama.cpp) containers (Docker or Podman) and streams their logs from one UI.
+- The app does **not** run a web server. The **main process** runs all external commands (Docker or Podman for containers, `nvidia-smi`, `top`, `find`); the **renderer** (front-end) only talks to the main process via IPC and never executes shell commands itself.
 - The project is **folder-agnostic**: the root directory can have any name. Every script sets `ROOT="$(cd "$(dirname "$0")" && pwd)"` so paths are resolved at runtime from the script’s location.
 
 ---
@@ -24,27 +24,38 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
     - `update` → `exec "$ROOT/update.sh"`
     - `start` or `app` → `exec "$ROOT/start.sh"`
     - `stop` → `exec "$ROOT/stop.sh"`
-    - `help` or `--help` or `-h` → prints the banner (from a heredoc) and usage text.
+    - `uninstall` → `exec "$ROOT/uninstall.sh" "$2"` (passes through e.g. `-y`/`--yes`).
+    - `help` or `--help` or `-h` → prints the banner (from `banner.txt`) and usage text.
   - Unknown subcommand → prints usage to stderr and exits 1.
 - **No subprocess for install/update/start/stop:** it uses `exec` so the target script replaces the ldroid process (saves a shell and keeps exit codes correct).
 
 ### 2.2 `install.sh`
 
 - **What it does, in order:**
-  1. Sets `ROOT` via `cd "$(dirname "$0")" && pwd`.
-  2. `cd "$ROOT/systems/llamacpp-log-viewer"` and runs **`npm install`** to install Node dependencies (including Electron).
-  3. If `icon.png` exists in the app folder: writes a **.desktop** file to `$XDG_DATA_HOME/applications/llamacpp-droid.desktop` (or `~/.local/share/applications/`). The file sets `Exec=$ROOT/start.sh` and `Icon=$ROOT/systems/llamacpp-log-viewer/icon.png` so the system launcher can start the app and show its icon.
-  4. If the `ldroid` script exists at `$ROOT/ldroid`: creates `$XDG_BIN_HOME` (or `~/.local/bin`) if needed and runs **`ln -sf "$ROOT/ldroid" "$BIN/ldroid"`** so the `ldroid` command is available in PATH.
-- **When to run:** once after cloning the repo, or after moving/renaming the repo (to refresh the .desktop path and ldroid symlink).
+  1. Sets `ROOT` and **`INSTALL_DIR=/opt/llamacpp-droid`**. Shows banner.
+  2. **Detects environment** so the install adapts to the machine:
+     - **OS:** `uname -s` and `/etc/os-release` (NAME, VERSION_ID) for display; warns if not Linux.
+     - **Architecture:** `uname -m` (e.g. x86_64, aarch64).
+     - **Node/npm:** Checks they exist in PATH; exits with a clear message if missing. Records version and path for the summary.
+     - **Docker/Podman:** Checks for `docker` then `podman` in PATH; reports which is available (app uses one for containers).
+     - **Sudo:** Required for /opt and /usr; exits if sudo is missing; if sudo needs a password, prompts later.
+     - **Desktop path:** Uses **`APPS=/usr/share/applications`** (standard on Linux).
+  3. Prints a short summary (OS, Arch, Node, npm, Docker, Install path) then continues.
+  4. Runs **`npm install`** in `$ROOT/systems/llamacpp-log-viewer` (so the source tree has deps).
+  5. **Installs to /opt:** uses **sudo** to create `$INSTALL_DIR`, then copies the repo there with **rsync** (or **cp** if no rsync), excluding `node_modules`; preserves `.git` for updates. Runs **`sudo env PATH="$PATH" npm install`** in the install dir so the same Node/npm as the user are used.
+  6. Writes a **system .desktop** file to **`$APPS/llamacpp-droid.desktop`** (via **sudo tee**) with `Exec=...` and `Icon=...`.
+  7. Creates **`/usr/local/bin/ldroid`** → symlink to **`/opt/llamacpp-droid/ldroid`** (via **sudo ln -sf**).
+  8. Runs **`update-desktop-database`** on `$APPS` when available.
+- **Requires sudo** for writing to /opt and /usr. Run once after cloning; the app then runs from /opt and appears in the app menu for all users.
 
 ### 2.3 `update.sh`
 
 - **What it does, in order:**
-  1. Sets `ROOT` the same way as install.
-  2. If `$ROOT/.git` exists: runs **`git pull --rebase`** (or plain `git pull` if rebase fails) to fetch latest code.
-  3. `cd`s to the app folder and runs **`npm install`** to refresh dependencies.
-  4. If `icon.png` exists: overwrites the same **.desktop** file as install (so `Exec` and `Icon` stay correct after path changes).
-  5. If `$BIN` exists and `ldroid` exists: runs **`ln -sf "$ROOT/ldroid" "$BIN/ldroid"`** to refresh the ldroid symlink.
+  1. Sets `ROOT` via `cd "$(dirname "$0")" && pwd` (when run as `/opt/llamacpp-droid/update.sh`, `ROOT` is `/opt/llamacpp-droid`).
+  2. If `$ROOT/.git` exists: runs **`git pull --rebase`** (or plain `git pull`) to fetch latest code.
+  3. `cd`s to the app folder and runs **`npm install`** (or **`sudo npm install`** when `$ROOT` is under `/opt`) to refresh dependencies.
+  4. **If `$ROOT` is under /opt:** writes the **.desktop** file to **`/usr/share/applications/llamacpp-droid.desktop`** (sudo), refreshes **`/usr/local/bin/ldroid`** (sudo), and runs **update-desktop-database**.
+  5. **Else** (running from a clone): writes **.desktop** to `~/.local/share/applications/` (with quoted paths for spaces) and **ldroid** to `~/.local/bin` (or `$XDG_BIN_HOME`).
   6. Prints a message suggesting `ldroid start` or `./start.sh` to launch.
 
 ### 2.4 `start.sh`
@@ -63,6 +74,15 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
   3. Fallback: **`pkill -f "electron.*llamacpp-log-viewer"`** and **`pkill -f "electron.*llamacpp-droid"`** in case the process string is different.
   4. Prints `Stopped.`
 - **Does not** stop Docker containers; only stops the Electron UI process.
+
+### 2.6 `uninstall.sh`
+
+- **What it does, in order:**
+  1. Shows the banner from `$ROOT/banner.txt` if present.
+  2. Unless **`-y`** or **`--yes`** is passed, prompts: “Uninstall? [y/N]” and exits 0 if the user does not confirm.
+  3. **Progress:** Stops the app (pkill Electron by install path and fallbacks), removes **`/usr/share/applications/llamacpp-droid.desktop`**, removes **`/usr/local/bin/ldroid`**, removes **`/opt/llamacpp-droid`** (entire directory), then runs **update-desktop-database** when available. Prints step percentages (0, 15, 20, 40, 45, 60, 65, 90, 95, 100).
+  4. Prints “Uninstall complete.” and notes that the clone (if any) is unchanged.
+- **Requires sudo** for removing files under /usr and /opt. Safe to run as **`ldroid uninstall`** (from PATH) or **`./uninstall.sh`** from repo or from /opt before it is removed.
 
 ---
 
@@ -83,14 +103,15 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 - **`mainWindow`** — reference to the single browser window.
 - **`logProcess`** — reference to the child process running `docker logs -f` when the log stream is active; used to kill the stream on stop or window close.
 
-### 4.2 Building Docker arguments and running Docker
+### 4.2 Container runtime (Docker or Podman) and running containers
 
-- **`buildDockerContainerArgs(config)`** — Maps the config object (from the renderer) to an array of arguments for `docker run` / `docker create`: `--name`, `--restart`, `--gpus all`, `--network`, `-v HOST:/models`, `--memory`, `--memory-swap`, image, then server flags (`--host`, `--port`, `--ctx-size`, `-ngl`, `-m` for model path). Optionally appends: `-t`, `-tb`, `-b`, `-np`, `-cb`, `--context-shift`, `--no-cache-prompt`, `--cache-reuse`, `--cache-type-k`, `--cache-type-v`, `-cram`, `--sleep-idle-seconds` when present in config. Returns the args array; **does not** run Docker.
-- **`dockerRun(config)`** — `spawn('docker', ['run', '-d', ...buildDockerContainerArgs(config)])`. Starts the container in the background.
-- **`dockerCreate(config)`** — `spawn('docker', ['create', ...buildDockerContainerArgs(config)])`. Creates the container but does not start it.
-- **`dockerStop(containerName)`** — `spawn('docker', ['stop', name])`.
-- **`dockerRm(containerName)`** — `spawn('docker', ['rm', '-f', name])`. Force-removes the container.
-- **`dockerInspect(containerName)`** — Runs `docker inspect --format '{{.State.Running}}' <name>`, parses stdout, and returns a Promise resolving to `{ running: true/false }` or `{ running: false, error }` on failure.
+- **`getContainerRuntime()`** — Returns `'docker'` or `'podman'`. On first call, runs `docker --version` and `podman --version` (sync); if Docker succeeds use `docker`, else if Podman succeeds use `podman`, else default `docker`. Result is cached for the session. All container commands use this runtime (same CLI args for both).
+- **`buildDockerContainerArgs(config)`** — Maps the config object (from the renderer) to an array of arguments for `run` / `create`: `--name`, `--restart`, `--gpus all`, `--network`, `-v HOST:/models`, `--memory`, `--memory-swap`, image, then server flags. Optionally appends: `-t`, `-tb`, `-b`, `-np`, `-cb`, `--context-shift`, `--no-cache-prompt`, `--cache-reuse`, `--cache-type-k`, `--cache-type-v`, `-cram`, `--sleep-idle-seconds` when present in config. Returns the args array; **does not** run the runtime.
+- **`dockerRun(config)`** — `spawn(getContainerRuntime(), ['run', '-d', ...buildDockerContainerArgs(config)])`. Starts the container in the background.
+- **`dockerCreate(config)`** — `spawn(getContainerRuntime(), ['create', ...])`. Creates the container but does not start it.
+- **`dockerStop(containerName)`** — `spawn(getContainerRuntime(), ['stop', name])`.
+- **`dockerRm(containerName)`** — `spawn(getContainerRuntime(), ['rm', '-f', name])`. Force-removes the container.
+- **`dockerInspect(containerName)`** — Runs `runtime inspect --format '{{.State.Running}}' <name>`, parses stdout, and returns a Promise resolving to `{ running: true/false }` or `{ running: false, error }` on failure.
 
 ### 4.3 Window and log stream lifecycle
 
@@ -99,11 +120,11 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 
 ### 4.4 IPC handlers (what the renderer can ask the main process to do)
 
-- **`log-stream:start`** — Stops any existing stream, then spawns `docker logs -f --tail 500 <containerName>`. Pipes stdout and stderr to the renderer via `mainWindow.webContents.send('log-stream:data', chunk)`. On process error/close, sends `log-stream:error` or `log-stream:closed`. Returns `{ ok: true }`.
+- **`log-stream:start`** — Stops any existing stream, then spawns `getContainerRuntime() logs -f --tail 500 <containerName>`. Pipes stdout and stderr to the renderer via `mainWindow.webContents.send('log-stream:data', chunk)`. On process error/close, sends `log-stream:error` or `log-stream:closed`. Returns `{ ok: true }`.
 - **`log-stream:stop`** — Calls `stopStream()` and returns `{ ok: true }`.
-- **`docker:run`** — Runs `docker rm -f <name>` (ignores errors), then `docker run -d` with the provided config. Resolves with `{ ok: true, stdout }` or `{ ok: false, error }`. This is “Run container” in the UI.
-- **`docker:create`** — Same as run but runs `docker create` instead of `docker run -d` (container is created but not started).
-- **`docker:stop`** — Runs `docker stop <name>`. Resolves with `{ ok: true }` or `{ ok: false, error }`.
+- **`docker:run`** — Runs `runtime rm -f <name>` (ignores errors), then `runtime run -d` with the provided config (runtime = Docker or Podman). Resolves with `{ ok: true, stdout }` or `{ ok: false, error }`. This is “Run container” in the UI.
+- **`docker:create`** — Same as run but runs `runtime create` instead of `runtime run -d` (container is created but not started).
+- **`docker:stop`** — Runs `runtime stop <name>`. Resolves with `{ ok: true }` or `{ ok: false, error }`.
 - **`docker:status`** — Returns the result of `dockerInspect(containerName)` (running true/false).
 - **`docker:runPreset`** — Builds a config from the preset name (`heavy` or `light`) and options (containerName, volumeHost, heavy/light model paths, ctx, ngl, cache type). **`presetConfig()`** in main builds the full Docker config for that preset (default image, host, port 8080, memory, etc.; heavy uses heavy model path, 20k ctx, ngl 42, KV cache q4_0; light uses light model path, 4k ctx, ngl 99). Then does `docker rm -f <name>` and `docker run -d` with that config. Resolves like `docker:run`.
 - **`find-gguf`** — Spawns `sh -c 'find "$HOME" -name "*.gguf" 2>/dev/null'`, collects stdout line by line, returns `{ paths: [...] }` (array of absolute paths). Used by “Find models” in the container form.
@@ -150,7 +171,7 @@ Links in the renderer that use `target="_blank"` are handled by the main process
 - **Header:** Logo, title “llamacpp droid”, profile dropdown (`#profileSelect`), “Save current as…”, “Delete”, then tab bar: `#container-tabs` (dynamic container tabs), “+ Add”, “Logs”, “Swap”, “Monitor”.
 - **Panels:**
   - **`#container-panels`** — Container panels are appended here by the renderer (one per container, cloned from the template).
-  - **`#panel-swap`** — Swap tab: intro text, preset form (container name, volume host, heavy/light model paths, ctx, ngl, KV cache), buttons “Heavy — 30B Coder …” and “Light — 7B Chat …”, message div.
+  - **`#panel-swap`** — Swap tab: intro text, preset form (container name, volume host, heavy/light model paths, ctx, ngl, Heavy KV cache, context shift, cache reuse, cache RAM), buttons “Heavy …” and “Light …”, message div.
   - **`#panel-monitor`** — Two `<pre>` blocks: `#monitorNvidiaSmi` and `#monitorTop` (filled by renderer with command output).
   - **`#panel-logs`** — Container name input, “Start stream” / “Stop stream”, “Clear”, status line, `#logOutput` (pre) for log text.
 - **Template** `#container-panel-template`: one `<section>` with a form containing all container fields (tab name, container name, image, volume host, model path, Find models button, host, port, ctx-size, ngl, memory, restart, network, checkboxes, cache options, sleep idle, Create / Run / Stop / Delete buttons). Each new container is a clone of this template with a unique panel id and event listeners attached in the renderer.
@@ -168,7 +189,7 @@ Links in the renderer that use `target="_blank"` are handled by the main process
 
 ### 7.2 Reading form data and building config
 
-- **`getConfig(form, defaultName, defaultPort)`** — Reads the container form via `FormData` and named inputs/checkboxes. Returns an object matching what `main.js` expects: `containerName`, `image`, `volumeHost`, `modelPath`, `host`, `port`, `ctxSize`, `ngl`, `memory`, `memorySwap`, `restart`, `network`, `gpus: 'all'`, plus optional `threads`, `threadsBatch`, `batchSize`, `parallel`, and booleans/options for `contBatching`, `contextShift`, `cachePrompt`, `cacheReuse`, `cacheTypeK`, `cacheTypeV`, `cacheRam`, `sleepIdleSeconds`.
+- **`getConfig(form, defaultName, defaultPort)`** — Reads the container form via `FormData` and named inputs/checkboxes. Returns an object matching what `main.js` expects: `containerName`, `image`, `volumeHost`, `modelPath`, `host`, `port`, `ctxSize`, `ngl`, `memory`, `memorySwap`, `restart`, `network`, `gpus: 'all'`, plus optional `threads`, `threadsBatch`, `batchSize`, `parallel`, and booleans/options for `contBatching`, `contextShift`, `cachePrompt`, `cacheReuse`, `cacheTypeK`, `cacheTypeV`, `cacheRam`, `ctxCheckpoints`, `kvUnified`, `sleepIdleSeconds`.
 - **`getDefaultConfig(index)`** — Default config for a new container: name `llamacpp` or `llamacpp2`…, port 8080 + index, default image, volume host, model path, ctx 12000, ngl 99, etc.
 - **`getContainerSettings(form, defaults)`** — Same shape as saved container entry; used when building the full settings payload.
 - **`getCurrentSettings()`** — Builds the object that is saved to localStorage: `version: 1`, `containers` (array of container settings from each form), `logContainerName` (from Logs input), `swap` (container name, volume host, heavy/light paths and options from Swap tab).
@@ -214,11 +235,18 @@ Links in the renderer that use `target="_blank"` are handled by the main process
 
 ### 7.8 Swap tab
 
-- **`getSwapOpts()`** — Reads container name, volume host, heavy/light model paths, ctx, ngl, cache from the Swap form inputs.
-- **Heavy button** click: `docker.runPreset({ preset: 'heavy', ...getSwapOpts() })`, then shows success or error in the message div.
-- **Light button** click: same with `preset: 'light'`.
+- **`getSwapOpts()`** — Reads container name, volume host, heavy/light model paths, ctx, ngl, Heavy KV cache, context shift, cache reuse, cache RAM from the Swap form.
+- **Heavy button** click: `docker.runPreset({ preset: 'heavy', ...getSwapOpts() })`, then shows success or error.
+- **Light button** click: same with `preset: 'light'`. Both presets use the same optional context shift, cache reuse, and cache RAM when set.
 
-### 7.9 Init (on load)
+### 7.9 llama.cpp server swap/context options (coverage)
+
+The app supports the swap- and context-related options from the [llama.cpp HTTP server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md):
+
+- **Container form:** `--context-shift`, `--cache-prompt` / `--no-cache-prompt`, `--cache-reuse`, `--cache-type-k`, `--cache-type-v`, `-cram` (cache RAM), `--ctx-checkpoints`, `--kv-unified` / `--no-kv-unified`, `--sleep-idle-seconds`. KV cache types: f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1.
+- **Swap presets:** Heavy and Light pass model path, ctx-size, ngl; Heavy also passes KV cache type (K and V). Both presets can use the shared options: context shift, cache reuse, cache RAM. For full control (e.g. different cache types per container, ctx-checkpoints), use the container form and Run/Create there.
+
+### 7.10 Init (on load)
 
 - **`saved = loadSettings()`**. If saved data exists and has at least one container: for each saved container calls `addContainer(mergeWithDefaults(c, i))`, restores log container name and swap fields, binds swap inputs to `saveSettings`, shows first container or Logs. Otherwise: adds two default containers with `getDefaultConfig(0)` and `getDefaultConfig(1)`, shows container 1, binds swap save.
 - **`refreshProfileDropdown()`** so the profile list is up to date.
@@ -251,12 +279,13 @@ The app does not listen on any network port; it only spawns these commands and d
 | File / path       | Role |
 |-------------------|------|
 | **Root**          | |
-| `ldroid`          | CLI dispatcher: install, update, start, stop, app, help; prints banner and usage for help. |
-| `banner.txt`      | ASCII banner (LLAMA + DROID + tagline); used in README and `ldroid help`. |
-| `install.sh`      | npm install, write .desktop, symlink ldroid to PATH. |
-| `update.sh`       | git pull (if repo), npm install, refresh .desktop and ldroid symlink. |
-| `start.sh`        | nohup npm start in app dir, disown. |
-| `stop.sh`         | pkill Electron by app path (and fallbacks). |
+| `ldroid`          | CLI dispatcher: install, update, start, stop, app, uninstall, help; prints banner from banner.txt for help. |
+| `banner.txt`      | ASCII banner (LLAMA + DROID + tagline); used by all root scripts and ldroid help. |
+| `install.sh`      | Install to /opt, system .desktop, /usr/local/bin/ldroid; progress %. |
+| `update.sh`       | Git pull (if repo), npm install, refresh .desktop and ldroid; progress %. |
+| `uninstall.sh`    | Remove /opt install, desktop entry, ldroid; confirm prompt unless -y/--yes; progress %. |
+| `start.sh`        | nohup npm start in app dir, disown; shows banner. |
+| `stop.sh`         | pkill Electron by app path (and fallbacks); shows banner. |
 | **App**           | |
 | `main.js`         | Window, IPC (log stream, docker run/create/stop/status/preset, find-gguf, monitor), Docker arg builder, presetConfig, runCommand, external links. |
 | `preload.js`      | contextBridge: logViewer, docker, findGguf, monitor. |

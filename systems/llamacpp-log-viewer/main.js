@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, nativeImage, shell } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const fs = require('fs');
+const { spawn, spawnSync } = require('child_process');
 
 // Allow running on Linux without setuid chrome-sandbox
 app.commandLine.appendSwitch('no-sandbox');
@@ -8,7 +9,17 @@ app.commandLine.appendSwitch('no-sandbox');
 let mainWindow = null;
 let logProcess = null;
 
-// ---- Docker run/create/stop/status ----
+// ---- Container runtime: Docker or Podman (auto-detect, prefer Docker) ----
+let _containerRuntime = null;
+function getContainerRuntime() {
+  if (_containerRuntime) return _containerRuntime;
+  const hasDocker = spawnSync('docker', ['--version'], { encoding: 'utf8', stdio: 'ignore' }).status === 0;
+  const hasPodman = spawnSync('podman', ['--version'], { encoding: 'utf8', stdio: 'ignore' }).status === 0;
+  _containerRuntime = hasDocker ? 'docker' : hasPodman ? 'podman' : 'docker';
+  return _containerRuntime;
+}
+
+// ---- Container run/create/stop/status (same CLI for docker and podman) ----
 function buildDockerContainerArgs(config) {
   const dockerArgs = [
     '--name', config.containerName || 'llamacpp',
@@ -60,6 +71,12 @@ function buildDockerContainerArgs(config) {
   if (config.cacheRam != null && config.cacheRam !== '') {
     dockerArgs.push('-cram', String(config.cacheRam).trim());
   }
+  if (config.ctxCheckpoints != null && config.ctxCheckpoints !== '' && parseInt(config.ctxCheckpoints, 10) >= 0) {
+    dockerArgs.push('--ctx-checkpoints', String(config.ctxCheckpoints).trim());
+  }
+  if (config.kvUnified === false) {
+    dockerArgs.push('--no-kv-unified');
+  }
   if (config.sleepIdleSeconds != null && config.sleepIdleSeconds !== '' && parseInt(config.sleepIdleSeconds, 10) > 0) {
     dockerArgs.push('--sleep-idle-seconds', String(config.sleepIdleSeconds).trim());
   }
@@ -67,24 +84,29 @@ function buildDockerContainerArgs(config) {
 }
 
 function dockerRun(config) {
-  return spawn('docker', ['run', '-d', ...buildDockerContainerArgs(config)], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const rt = getContainerRuntime();
+  return spawn(rt, ['run', '-d', ...buildDockerContainerArgs(config)], { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 function dockerCreate(config) {
-  return spawn('docker', ['create', ...buildDockerContainerArgs(config)], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const rt = getContainerRuntime();
+  return spawn(rt, ['create', ...buildDockerContainerArgs(config)], { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 function dockerStop(containerName) {
-  return spawn('docker', ['stop', containerName || 'llamacpp'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const rt = getContainerRuntime();
+  return spawn(rt, ['stop', containerName || 'llamacpp'], { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 function dockerRm(containerName) {
-  return spawn('docker', ['rm', '-f', containerName || 'llamacpp'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const rt = getContainerRuntime();
+  return spawn(rt, ['rm', '-f', containerName || 'llamacpp'], { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 function dockerInspect(containerName) {
   return new Promise((resolve, reject) => {
-    const p = spawn('docker', ['inspect', '--format', '{{.State.Running}}', containerName || 'llamacpp'], {
+    const rt = getContainerRuntime();
+    const p = spawn(rt, ['inspect', '--format', '{{.State.Running}}', containerName || 'llamacpp'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
@@ -143,7 +165,8 @@ function stopStream() {
 ipcMain.handle('log-stream:start', (_, containerName = 'llamacpp') => {
   stopStream();
   const name = String(containerName).trim() || 'llamacpp';
-  logProcess = spawn('docker', ['logs', '-f', '--tail', '500', name], {
+  const rt = getContainerRuntime();
+  logProcess = spawn(rt, ['logs', '-f', '--tail', '500', name], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -242,6 +265,10 @@ ipcMain.handle('docker:status', async (_, containerName) => {
   return dockerInspect(containerName || 'llamacpp');
 });
 
+ipcMain.handle('container-runtime:get', () => {
+  return { runtime: getContainerRuntime() };
+});
+
 function presetConfig(containerName, preset, volumeHost, opts = {}) {
   const base = {
     containerName: containerName || 'llamacpp',
@@ -254,6 +281,10 @@ function presetConfig(containerName, preset, volumeHost, opts = {}) {
     restart: 'always',
     network: 'host',
     gpus: 'all',
+    contextShift: !!opts.contextShift,
+    cachePrompt: true,
+    cacheReuse: opts.cacheReuse != null && String(opts.cacheReuse).trim() !== '' ? String(opts.cacheReuse).trim() : undefined,
+    cacheRam: opts.cacheRam != null && String(opts.cacheRam).trim() !== '' ? String(opts.cacheRam).trim() : undefined,
   };
   if (preset === 'heavy') {
     const heavyModel = (opts.heavyModelPath && opts.heavyModelPath.trim()) || '/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q3_K_S.gguf';
@@ -276,7 +307,7 @@ function presetConfig(containerName, preset, volumeHost, opts = {}) {
   };
 }
 
-ipcMain.handle('docker:runPreset', async (_, { containerName, preset, volumeHost, lightModelPath, heavyModelPath, heavyCtx, heavyNgl, heavyCache, lightCtx, lightNgl }) => {
+ipcMain.handle('docker:runPreset', async (_, { containerName, preset, volumeHost, lightModelPath, heavyModelPath, heavyCtx, heavyNgl, heavyCache, lightCtx, lightNgl, contextShift, cacheReuse, cacheRam }) => {
   const name = containerName || 'llamacpp';
   const config = presetConfig(name, preset, volumeHost, {
     lightModelPath,
@@ -286,6 +317,9 @@ ipcMain.handle('docker:runPreset', async (_, { containerName, preset, volumeHost
     heavyCache,
     lightCtx,
     lightNgl,
+    contextShift,
+    cacheReuse,
+    cacheRam,
   });
   return new Promise((resolve) => {
     const doRun = () => {
@@ -308,7 +342,17 @@ ipcMain.handle('docker:runPreset', async (_, { containerName, preset, volumeHost
 
 ipcMain.handle('find-gguf', () => {
   return new Promise((resolve) => {
-    const child = spawn('sh', ['-c', 'find "$HOME" -name "*.gguf" 2>/dev/null'], {
+    // Search $HOME and common model locations; only include dirs that exist. -iname for .GGUF/.gguf
+    const script = `
+      roots="$HOME"
+      [ -d /data ] && roots="$roots /data"
+      [ -d /mnt ] && roots="$roots /mnt"
+      [ -d /media ] && roots="$roots /media"
+      [ -d "$HOME/.cache" ] && roots="$roots $HOME/.cache"
+      [ -d "$HOME/models" ] && roots="$roots $HOME/models"
+      for r in $roots; do find "$r" -type f -iname "*.gguf" 2>/dev/null; done | sort -u
+    `;
+    const child = spawn('sh', ['-c', script.trim()], {
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     let out = '';
@@ -348,6 +392,43 @@ function runCommand(cmd, args, timeoutMs = 8000) {
 
 ipcMain.handle('monitor:nvidia-smi', () => runCommand('nvidia-smi', []));
 ipcMain.handle('monitor:top', () => runCommand('top', ['-b', '-n', '1']));
+
+ipcMain.handle('app:open-url', (_, url) => {
+  if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+    shell.openExternal(url);
+    return { ok: true };
+  }
+  return { ok: false, error: 'Invalid URL' };
+});
+
+ipcMain.handle('app:run-update', () => {
+  const appRoot = path.join(app.getAppPath(), '..', '..');
+  const updateScript = path.join(appRoot, 'update.sh');
+  if (!fs.existsSync(updateScript)) {
+    return Promise.resolve({ ok: false, error: 'update.sh not found', stdout: '', stderr: '' });
+  }
+  return new Promise((resolve) => {
+    const child = spawn('bash', [updateScript], {
+      cwd: appRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (c) => { stdout += c; });
+    child.stderr.on('data', (c) => { stderr += c; });
+    child.on('close', (code) => {
+      resolve({
+        ok: code === 0,
+        stdout,
+        stderr,
+        error: code === 0 ? null : (stderr || `Exit ${code}`),
+      });
+    });
+    child.on('error', (err) => resolve({ ok: false, stdout: '', stderr: '', error: err.message }));
+  });
+});
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());

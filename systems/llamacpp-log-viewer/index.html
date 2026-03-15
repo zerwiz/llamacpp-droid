@@ -77,9 +77,29 @@
                 <option value="q4_0">q4_0</option>
                 <option value="q8_0">q8_0</option>
                 <option value="f16">f16</option>
+                <option value="f32">f32</option>
+                <option value="bf16">bf16</option>
                 <option value="q4_1">q4_1</option>
+                <option value="iq4_nl">iq4_nl</option>
                 <option value="q5_0">q5_0</option>
+                <option value="q5_1">q5_1</option>
               </select>
+            </div>
+          </div>
+          <div class="form-row three-cols">
+            <div class="form-row-check">
+              <label class="checkbox-label">
+                <input type="checkbox" id="swapContextShift" title="Use context shift for both presets" />
+                <span>Context shift (--context-shift)</span>
+              </label>
+            </div>
+            <div>
+              <label>Cache reuse (--cache-reuse)</label>
+              <input type="number" id="swapCacheReuse" min="0" placeholder="0 = off" title="Min chunk size to reuse KV cache" />
+            </div>
+            <div>
+              <label>Cache RAM MiB (-cram)</label>
+              <input type="number" id="swapCacheRam" min="-1" placeholder="default" title="Max KV cache size in MiB" />
             </div>
           </div>
           <div class="form-row">
@@ -135,7 +155,13 @@
   <template id="container-panel-template">
     <section class="panel container-panel" data-container-id="">
       <div class="runner-card">
-        <div class="runner-status">Checking…</div>
+        <div class="runner-status-wrap">
+          <div class="runner-status">Checking…</div>
+          <div class="runner-server-row hidden">
+            <span class="runner-server-url" title="Server URL">http://localhost:8080</span>
+            <button type="button" class="btn btn-secondary btn-open-webui">Open WebUI</button>
+          </div>
+        </div>
         <form class="runner-form">
           <div class="form-row two-cols">
             <div>
@@ -160,10 +186,12 @@
               <label>Model path (in container)</label>
               <input type="text" name="modelPath" value="/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q3_K_S.gguf" placeholder="/models/..." spellcheck="false" />
               <button type="button" class="btn btn-secondary btn-find-models">Find models</button>
-              <div class="model-list-wrap hidden">
-                <div class="model-list-status"></div>
-                <ul class="model-list"></ul>
-              </div>
+            </div>
+          </div>
+          <div class="form-row model-list-row">
+            <div class="model-list-wrap hidden">
+              <div class="model-list-status"></div>
+              <ul class="model-list"></ul>
             </div>
           </div>
           <div class="form-row three-cols">
@@ -274,6 +302,19 @@
               <input type="number" name="cacheRam" min="-1" placeholder="default" title="Max KV cache size in MiB; -1 no limit, 0 disable" />
             </div>
           </div>
+          <div class="form-row three-cols">
+            <div>
+              <label>Ctx checkpoints (--ctx-checkpoints)</label>
+              <input type="number" name="ctxCheckpoints" min="0" placeholder="default" title="Max context checkpoints per slot (server default: 8)" />
+            </div>
+            <div class="form-row-check">
+              <label class="checkbox-label">
+                <input type="checkbox" name="kvUnified" checked title="Single unified KV buffer (--kv-unified). Uncheck for --no-kv-unified" />
+                <span>KV unified (--kv-unified)</span>
+              </label>
+            </div>
+            <div></div>
+          </div>
           <div class="form-row">
             <label>Sleep idle (seconds) — <code>--sleep-idle-seconds</code></label>
             <input type="number" name="sleepIdleSeconds" min="0" placeholder="off" title="Unload model from VRAM after N seconds idle; GPU can drop to low power. 0 or empty = disabled." />
@@ -309,9 +350,26 @@
   </template>
 
   <footer class="app-footer">
+    <span class="footer-runtime" id="footerRuntime" title="Container runtime (Docker or Podman)">Runtime: …</span>
+    <button type="button" class="btn btn-footer btn-secondary" id="btnInstallLlamacpp" title="Open llama.cpp install and server options">Install llama.cpp options</button>
+    <button type="button" class="btn btn-footer btn-secondary" id="btnUpdate" title="Run app update (git pull + npm + launcher refresh)">Update</button>
+    <span class="footer-update-status" id="footerUpdateStatus" aria-live="polite"></span>
     <span class="footer-dev">Developer: <a href="https://whynotproductions.netlify.app/" target="_blank" rel="noopener noreferrer">Zerwiz</a></span>
     <span class="footer-tagline">Movement over ego. Collaboration over competition. Action over perfection.</span>
   </footer>
+
+  <!-- Profile name modal (Save current as…) -->
+  <div class="profile-modal hidden" id="profileSaveModal" role="dialog" aria-labelledby="profileSaveModalTitle" aria-modal="true">
+    <div class="profile-modal-backdrop" id="profileSaveModalBackdrop"></div>
+    <div class="profile-modal-box">
+      <h2 class="profile-modal-title" id="profileSaveModalTitle">Profile name</h2>
+      <input type="text" class="profile-modal-input" id="profileSaveModalInput" placeholder="e.g. Heavy 30B" spellcheck="false" />
+      <div class="profile-modal-actions">
+        <button type="button" class="btn btn-secondary" id="profileSaveModalCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="profileSaveModalOk">Save</button>
+      </div>
+    </div>
+  </div>
 
   <script src="renderer.js"></script>
 </body>

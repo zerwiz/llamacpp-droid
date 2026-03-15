@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('docker', {
   runPreset: (opts) => ipcRenderer.invoke('docker:runPreset', opts),
   stop: (containerName) => ipcRenderer.invoke('docker:stop', containerName),
   status: (containerName) => ipcRenderer.invoke('docker:status', containerName),
+  getRuntime: () => ipcRenderer.invoke('container-runtime:get'),
 });
 
 contextBridge.exposeInMainWorld('findGguf', () => ipcRenderer.invoke('find-gguf'));
@@ -33,4 +34,9 @@ contextBridge.exposeInMainWorld('findGguf', () => ipcRenderer.invoke('find-gguf'
 contextBridge.exposeInMainWorld('monitor', {
   nvidiaSmi: () => ipcRenderer.invoke('monitor:nvidia-smi'),
   top: () => ipcRenderer.invoke('monitor:top'),
+});
+
+contextBridge.exposeInMainWorld('app', {
+  openUrl: (url) => ipcRenderer.invoke('app:open-url', url),
+  runUpdate: () => ipcRenderer.invoke('app:run-update'),
 });

@@ -2,42 +2,27 @@
 # ldroid — CLI for llamacpp droid. Folder-agnostic; run from repo root or via PATH.
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-usage() {
-  cat << 'EOF'
-    ╔═══════════════════════════════════════════════════════╗
-    ║                                                       ║
-    ║   ██╗     ██╗     █████╗ ███╗   ███╗ █████╗           ║
-    ║   ██║     ██║    ██╔══██╗████╗ ████║██╔══██╗          ║
-    ║   ██║     ██║    ███████║██╔████╔██║███████║          ║
-    ║   ██║     ██║    ██╔══██║██║╚██╔╝██║██╔══██║          ║
-    ║   ██║     ██║    ██║  ██║██║ ╚═╝ ██║██║  ██║          ║
-    ║   ╚█████╗ ╚█████╗╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝          ║
-    ║                                                       ║
-    ║   ██████╗ ██████╗  ██████╗ ██╗██████╗                 ║
-    ║   ██╔══██╗██╔══██╗██╔═══██╗██║██╔══██╗                ║
-    ║   ██║  ██║██████╔╝██║   ██║██║██║  ██║                ║
-    ║   ██║  ██║██╔══██╗██║   ██║██║██║  ██║                ║
-    ║   ██████╔╝██║  ██║╚██████╔╝██║██████╔╝                ║
-    ║   ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═╝╚═════╝                 ║
-    ║                                                       ║
-    ║              Run containers. Stream logs.             ║
-    ║                                                       ║
-    ╚═══════════════════════════════════════════════════════╝
+show_banner() { [ -f "$ROOT/banner.txt" ] && cat "$ROOT/banner.txt" && echo; }
 
+usage() {
+  show_banner
+  cat << 'EOF'
 ldroid — Run and manage llamacpp droid (Electron app for llama.cpp Docker containers)
 
 Usage:
-  ldroid install    Install dependencies and desktop launcher (run once after clone)
+  ldroid install    Install to /opt, desktop entry, and ldroid command (run once, needs sudo)
   ldroid update     Pull latest code (if git) and refresh deps + launcher
   ldroid start      Start the app (background)
   ldroid stop       Stop the running app
   ldroid app        Same as start
+  ldroid uninstall  Remove /opt install, desktop entry, and ldroid command (use -y to skip confirm)
   ldroid help       Show this help
 
 Examples:
   ldroid install && ldroid start
   ldroid update
-  ldroid stop
+  ldroid uninstall
+  ldroid uninstall --yes
 EOF
 }
 
@@ -53,6 +38,9 @@ case "${1:-help}" in
     ;;
   stop)
     exec "$ROOT/stop.sh"
+    ;;
+  uninstall)
+    exec "$ROOT/uninstall.sh" "$2"
     ;;
   help|--help|-h)
     usage

@@ -22,7 +22,7 @@
     ╚═══════════════════════════════════════════════════════╝
 ```
 
-Desktop app to **run and manage** [llama.cpp](https://github.com/ggml-org/llama.cpp) Docker containers and **stream their logs** from one UI. No need to type `docker run` in the terminal—configure images, models, ports, and swap presets in the app.
+Desktop app to **run and manage** [llama.cpp](https://github.com/ggml-org/llama.cpp) containers (Docker or Podman) and **stream their logs** from one UI. No need to type `docker run` in the terminal—configure images, models, ports, and swap presets in the app.
 
 Built with **Electron**. Linux (tested with `--no-sandbox` for environments without setuid sandbox).
 
@@ -42,7 +42,7 @@ Built with **Electron**. Linux (tested with `--no-sandbox` for environments with
 ## Prerequisites
 
 - **Node.js** 18+
-- **Docker** (for running and logging containers)
+- **Docker or Podman** (for running and logging containers; the app auto-detects which is available)
 - (Optional) NVIDIA GPU + drivers for CUDA-backed llama.cpp images
 
 ---
@@ -51,36 +51,30 @@ Built with **Electron**. Linux (tested with `--no-sandbox` for environments with
 
 The project is **folder-agnostic**: you can clone it into or rename the root folder to anything. All scripts resolve paths at runtime from the script location.
 
-From the project root, use the **ldroid** CLI (or the legacy scripts):
+From the project root, run the installer (requires **sudo**); it copies the app to **/opt/llamacpp-droid** and adds a system-wide launcher and `ldroid` command:
 
 ```bash
-./ldroid install   # install dependencies + desktop launcher + ldroid to PATH (once)
+./ldroid install   # or: ./install.sh — installs to /opt, adds app menu entry and ldroid (once)
 ./ldroid start     # launch the app
 ```
 
-Or with the legacy scripts:
+After install, the app lives in **/opt/llamacpp-droid**, the desktop entry is in **/usr/share/applications/llamacpp-droid.desktop**, and **ldroid** is at **/usr/local/bin/ldroid** (available to all users).
 
-```bash
-./install.sh       # install dependencies (once)
-./start.sh         # launch the app
-```
-
-After `ldroid install`, the `ldroid` command is linked into `~/.local/bin` (or `$XDG_BIN_HOME`). Ensure that directory is in your PATH to run `ldroid` from anywhere.
-
-If you move or rename the project folder later, run `ldroid install` (or `./install.sh`) again so the desktop launcher and `ldroid` symlink point to the new path.
+To update the installed app, run **`ldroid update`** (or `sudo /opt/llamacpp-droid/update.sh`); it pulls latest code and refreshes the launcher.
 
 **Terminal commands (ldroid):**
 
 | Command | Description |
 |---------|-------------|
-| `ldroid install` | Install deps, desktop launcher, and `ldroid` into PATH (run once) |
+| `ldroid install` | Install to /opt/llamacpp-droid, system .desktop, and /usr/local/bin/ldroid (run once, needs sudo) |
 | `ldroid update` | Pull latest code (if git) and refresh deps + launcher |
 | `ldroid start` | Start the app (background) |
 | `ldroid stop` | Stop the running app |
 | `ldroid app` | Same as start |
+| `ldroid uninstall` | Remove /opt install, desktop entry, and ldroid (use `-y` to skip confirm) |
 | `ldroid help` | Show usage |
 
-From the repo root you can run `./ldroid help` or `./ldroid install` etc. After install, use `ldroid` from any directory.
+From the repo root you can run `./ldroid help` or `./ldroid install` etc. After install, `ldroid` is in /usr/local/bin and the app appears in your app menu.
 
 To update the app:
 
@@ -96,6 +90,15 @@ To stop the app:
 ldroid stop
 # or
 ./stop.sh
+```
+
+To uninstall (remove /opt install, app menu entry, and ldroid command):
+
+```bash
+ldroid uninstall
+# or
+./uninstall.sh
+# Skip confirmation: ldroid uninstall -y  or  ./uninstall.sh --yes
 ```
 
 ---
@@ -114,9 +117,10 @@ ldroid stop
 
 | Path | Description |
 |------|-------------|
-| `ldroid` | CLI: `install`, `update`, `start`, `stop`, `app`, `help` (preferred entry point) |
-| `install.sh` | Install app dependencies (+ desktop launcher + ldroid to PATH) |
+| `ldroid` | CLI: `install`, `update`, `start`, `stop`, `app`, `uninstall`, `help` (preferred entry point) |
+| `install.sh` | Install to /opt/llamacpp-droid, system .desktop, /usr/local/bin/ldroid (requires sudo) |
 | `update.sh` | Update app (git pull + npm install + refresh launcher) |
+| `uninstall.sh` | Remove /opt install, desktop entry, and ldroid (requires sudo) |
 | `start.sh` | Start llamacpp droid |
 | `stop.sh` | Stop the running app |
 | `systems/llamacpp-log-viewer/` | Electron app (UI, docker run/create/stop/logs, profiles, swap, monitor) |

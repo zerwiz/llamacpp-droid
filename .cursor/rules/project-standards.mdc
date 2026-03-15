@@ -1,0 +1,12 @@
+---
+description: Repo structure, planning, docs, and boot scripts
+alwaysApply: true
+---
+
+# Project standards
+
+- **Planning first.** Create/update `docs/PLANNING.md` and any system ROADMAP/PLANNING before changing scope. Keep them consistent.
+- **Root = boot only.** Entry points and boot config live in root: `ldroid`, `install.sh`, `update.sh`, `start.sh`, `stop.sh`, `banner.txt`. All other code lives under `systems/`, `docs/`, `scripts/`, `configs/`, etc.
+- **Docs.** Every major dir has a README (purpose, structure, usage). Central high-level plan in `docs/PLANNING.md`. Update README and planning when refactoring or adding systems.
+- **No breaking edits.** Preserve API endpoints, ports, and external connections. Only edit when necessary (bugs, performance, dedup). If a change risks connectivity (APIs, DB, services), warn instead of changing automatically.
+- **Boot/startup.** After dependency or path changes, keep `install.sh`, `update.sh`, `ldroid`, and launcher/icon logic updated so install and update run correctly and the app icon is refreshed when `icon.png` changes.

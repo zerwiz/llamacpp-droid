@@ -1,0 +1,12 @@
+---
+description: Electron app in systems/llamacpp-log-viewer
+globs: "systems/llamacpp-log-viewer/**/*"
+alwaysApply: false
+---
+
+# Electron app (llamacpp-log-viewer)
+
+- **Stack:** Electron; main process, preload, renderer. Docker/Podman for containers; optional nvidia-smi for monitor.
+- **Paths:** App lives under `systems/llamacpp-log-viewer/`. Icon: `icon.png` (used by install/update for system menu). Do not remove or rename without updating `install.sh` and `update.sh` icon steps.
+- **Behaviour:** Containers (run/stop/create), logs stream, swap presets, profiles, monitor tab. Settings and profiles persist (localStorage). Do not change container API, ports, or log-stream behaviour unless explicitly requested.
+- **Docs:** See `docs/SYSTEMS.md` for full functionality. New features: update SYSTEMS.md and PLANNING.md as needed.

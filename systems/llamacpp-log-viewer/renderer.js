@@ -43,6 +43,8 @@ function getConfig(form, defaultName = 'llamacpp', defaultPort = 8080) {
     cacheTypeK: get('cacheTypeK') || undefined,
     cacheTypeV: get('cacheTypeV') || undefined,
     cacheRam: get('cacheRam') || undefined,
+    ctxCheckpoints: get('ctxCheckpoints') || undefined,
+    kvUnified: form.querySelector('[name="kvUnified"]')?.checked !== false,
     sleepIdleSeconds: get('sleepIdleSeconds') || undefined,
   };
 }
@@ -75,6 +77,8 @@ function getDefaultConfig(index) {
     cacheTypeK: '',
     cacheTypeV: '',
     cacheRam: '',
+    ctxCheckpoints: '',
+    kvUnified: true,
     sleepIdleSeconds: '',
   };
 }
@@ -108,6 +112,8 @@ function getContainerSettings(form, defaults) {
     cacheTypeK: get('cacheTypeK') || '',
     cacheTypeV: get('cacheTypeV') || '',
     cacheRam: get('cacheRam') || '',
+    ctxCheckpoints: get('ctxCheckpoints') || '',
+    kvUnified: form.querySelector('[name="kvUnified"]')?.checked !== false,
     sleepIdleSeconds: get('sleepIdleSeconds') || '',
   };
 }
@@ -126,6 +132,9 @@ function getCurrentSettings() {
       heavyCtx: swapHeavyCtx ? swapHeavyCtx.value : '',
       heavyNgl: swapHeavyNgl ? swapHeavyNgl.value : '',
       heavyCache: swapHeavyCache ? swapHeavyCache.value : '',
+      contextShift: swapContextShift ? swapContextShift.checked : false,
+      cacheReuse: swapCacheReuse ? swapCacheReuse.value.trim() : '',
+      cacheRam: swapCacheRam ? swapCacheRam.value.trim() : '',
       lightModelPath: swapLightModel ? swapLightModel.value.trim() : '',
       lightCtx: swapLightCtx ? swapLightCtx.value : '',
       lightNgl: swapLightNgl ? swapLightNgl.value : '',
@@ -165,6 +174,8 @@ function mergeWithDefaults(saved, index) {
     cacheTypeK: saved.cacheTypeK != null ? saved.cacheTypeK : def.cacheTypeK,
     cacheTypeV: saved.cacheTypeV != null ? saved.cacheTypeV : def.cacheTypeV,
     cacheRam: saved.cacheRam != null ? saved.cacheRam : def.cacheRam,
+    ctxCheckpoints: saved.ctxCheckpoints != null ? saved.ctxCheckpoints : def.ctxCheckpoints,
+    kvUnified: saved.kvUnified !== undefined ? !!saved.kvUnified : def.kvUnified,
     sleepIdleSeconds: saved.sleepIdleSeconds != null ? saved.sleepIdleSeconds : def.sleepIdleSeconds,
   };
 }
@@ -221,6 +232,9 @@ function addContainer(defaults) {
   const section = panel.querySelector('section');
   const card = section.querySelector('.runner-card');
   const statusEl = card.querySelector('.runner-status');
+  const serverRowEl = card.querySelector('.runner-server-row');
+  const serverUrlEl = card.querySelector('.runner-server-url');
+  const btnOpenWebui = card.querySelector('.btn-open-webui');
   const form = card.querySelector('form');
   const messageEl = card.querySelector('.runner-message');
   const btnCreate = card.querySelector('.btn-create');
@@ -254,6 +268,13 @@ function addContainer(defaults) {
   if (ctxShiftInput) ctxShiftInput.checked = !!defaults.contextShift;
   if (defaults.cacheTypeK) form.querySelector('[name="cacheTypeK"]').value = defaults.cacheTypeK;
   if (defaults.cacheTypeV) form.querySelector('[name="cacheTypeV"]').value = defaults.cacheTypeV;
+  const cachePromptInput = form.querySelector('[name="cachePrompt"]');
+  if (cachePromptInput) cachePromptInput.checked = defaults.cachePrompt !== false;
+  if (defaults.cacheReuse !== undefined && defaults.cacheReuse !== '') form.querySelector('[name="cacheReuse"]').value = defaults.cacheReuse;
+  if (defaults.cacheRam !== undefined && defaults.cacheRam !== '') form.querySelector('[name="cacheRam"]').value = defaults.cacheRam;
+  if (defaults.ctxCheckpoints !== undefined && defaults.ctxCheckpoints !== '') form.querySelector('[name="ctxCheckpoints"]').value = defaults.ctxCheckpoints;
+  const kvUnifiedInput = form.querySelector('[name="kvUnified"]');
+  if (kvUnifiedInput) kvUnifiedInput.checked = defaults.kvUnified !== false;
   if (defaults.sleepIdleSeconds) form.querySelector('[name="sleepIdleSeconds"]').value = defaults.sleepIdleSeconds;
 
   const tabBtn = document.createElement('button');
@@ -278,7 +299,7 @@ function addContainer(defaults) {
 
   btnFindModels.addEventListener('click', async () => {
     modelListWrap.classList.remove('hidden');
-    modelListStatus.textContent = 'Searching $HOME for *.gguf…';
+    modelListStatus.textContent = 'Searching $HOME, /data, /mnt, /media, ~/.cache, ~/models for *.gguf…';
     modelList.innerHTML = '';
     try {
       const { paths, error } = await window.findGguf();
@@ -287,7 +308,7 @@ function addContainer(defaults) {
         return;
       }
       if (!paths.length) {
-        modelListStatus.textContent = 'No .gguf files found under $HOME.';
+        modelListStatus.textContent = 'No .gguf files found in search locations.';
         return;
       }
       modelListStatus.textContent = paths.length + ' model(s) found. Click one to use:';
@@ -315,6 +336,13 @@ function addContainer(defaults) {
     messageEl.className = 'runner-message ' + type;
   }
 
+  function getServerUrl() {
+    const host = (form.querySelector('[name="host"]').value || '0.0.0.0').trim();
+    const port = form.querySelector('[name="port"]').value || String(defaults.port || 8080);
+    const useHost = (host === '0.0.0.0' || host === '') ? 'localhost' : host;
+    return 'http://' + useHost + ':' + port;
+  }
+
   async function refreshStatus() {
     const name = form.querySelector('[name="containerName"]').value.trim() || defaults.containerName;
     try {
@@ -322,14 +350,24 @@ function addContainer(defaults) {
       if (r.running) {
         statusEl.textContent = 'Container “‘ + name +’” is running';
         statusEl.className = 'runner-status running';
+        if (serverUrlEl) serverUrlEl.textContent = getServerUrl();
+        if (serverRowEl) serverRowEl.classList.remove('hidden');
       } else {
         statusEl.textContent = 'Container “‘ + name +’” is stopped';
         statusEl.className = 'runner-status stopped';
+        if (serverRowEl) serverRowEl.classList.add('hidden');
       }
     } catch (_) {
       statusEl.textContent = 'Container “‘ + name +’” not found or error';
       statusEl.className = 'runner-status stopped';
+      if (serverRowEl) serverRowEl.classList.add('hidden');
     }
+  }
+
+  if (btnOpenWebui && window.app && typeof window.app.openUrl === 'function') {
+    btnOpenWebui.addEventListener('click', () => {
+      window.app.openUrl(getServerUrl());
+    });
   }
 
   form.addEventListener('submit', async (e) => {
@@ -466,6 +504,9 @@ function applySettingsToUI(data) {
     if (swapHeavyCtx && data.swap.heavyCtx != null) swapHeavyCtx.value = data.swap.heavyCtx;
     if (swapHeavyNgl && data.swap.heavyNgl != null) swapHeavyNgl.value = data.swap.heavyNgl;
     if (swapHeavyCache && data.swap.heavyCache != null) swapHeavyCache.value = data.swap.heavyCache;
+    if (swapContextShift && data.swap.contextShift != null) swapContextShift.checked = !!data.swap.contextShift;
+    if (swapCacheReuse && data.swap.cacheReuse != null) swapCacheReuse.value = data.swap.cacheReuse;
+    if (swapCacheRam && data.swap.cacheRam != null) swapCacheRam.value = data.swap.cacheRam;
     if (swapLightModel && data.swap.lightModelPath != null) swapLightModel.value = data.swap.lightModelPath;
     if (swapLightCtx && data.swap.lightCtx != null) swapLightCtx.value = data.swap.lightCtx;
     if (swapLightNgl && data.swap.lightNgl != null) swapLightNgl.value = data.swap.lightNgl;
@@ -580,6 +621,9 @@ const swapHeavyModel = document.getElementById('swapHeavyModel');
 const swapHeavyCtx = document.getElementById('swapHeavyCtx');
 const swapHeavyNgl = document.getElementById('swapHeavyNgl');
 const swapHeavyCache = document.getElementById('swapHeavyCache');
+const swapContextShift = document.getElementById('swapContextShift');
+const swapCacheReuse = document.getElementById('swapCacheReuse');
+const swapCacheRam = document.getElementById('swapCacheRam');
 const swapLightModel = document.getElementById('swapLightModel');
 const swapLightCtx = document.getElementById('swapLightCtx');
 const swapLightNgl = document.getElementById('swapLightNgl');
@@ -595,6 +639,9 @@ function getSwapOpts() {
     heavyCtx: swapHeavyCtx ? swapHeavyCtx.value : '',
     heavyNgl: swapHeavyNgl ? swapHeavyNgl.value : '',
     heavyCache: swapHeavyCache ? swapHeavyCache.value.trim() : '',
+    contextShift: swapContextShift ? swapContextShift.checked : false,
+    cacheReuse: swapCacheReuse ? swapCacheReuse.value.trim() : '',
+    cacheRam: swapCacheRam ? swapCacheRam.value.trim() : '',
     lightModelPath: swapLightModel ? swapLightModel.value.trim() : '',
     lightCtx: swapLightCtx ? swapLightCtx.value : '',
     lightNgl: swapLightNgl ? swapLightNgl.value : '',
@@ -619,6 +666,9 @@ swapHeavyBtn.addEventListener('click', async () => {
       heavyCtx: opts.heavyCtx,
       heavyNgl: opts.heavyNgl,
       heavyCache: opts.heavyCache,
+      contextShift: opts.contextShift,
+      cacheReuse: opts.cacheReuse,
+      cacheRam: opts.cacheRam,
     });
     if (result.ok) setSwapMessage('Heavy preset running.', 'success');
     else setSwapMessage(result.error || 'Failed', 'error');
@@ -640,6 +690,9 @@ swapLightBtn.addEventListener('click', async () => {
       lightModelPath: opts.lightModelPath,
       lightCtx: opts.lightCtx,
       lightNgl: opts.lightNgl,
+      contextShift: opts.contextShift,
+      cacheReuse: opts.cacheReuse,
+      cacheRam: opts.cacheRam,
     });
     if (result.ok) setSwapMessage('Light preset running.', 'success');
     else setSwapMessage(result.error || 'Failed', 'error');
@@ -662,9 +715,27 @@ profileSelect.addEventListener('change', () => {
   if (profile && profile.data) loadProfile(profile.data);
 });
 
-btnProfileSave.addEventListener('click', () => {
-  const name = (typeof prompt === 'function' ? prompt('Profile name:', '') : null) || '';
-  const trimmed = name.trim();
+// Profile save: use in-app modal (prompt() is often blocked in Electron)
+const profileSaveModal = document.getElementById('profileSaveModal');
+const profileSaveModalInput = document.getElementById('profileSaveModalInput');
+const profileSaveModalOk = document.getElementById('profileSaveModalOk');
+const profileSaveModalCancel = document.getElementById('profileSaveModalCancel');
+const profileSaveModalBackdrop = document.getElementById('profileSaveModalBackdrop');
+
+function openProfileSaveModal() {
+  if (!profileSaveModal || !profileSaveModalInput) return;
+  profileSaveModalInput.value = '';
+  profileSaveModal.classList.remove('hidden');
+  profileSaveModalInput.focus();
+}
+
+function closeProfileSaveModal() {
+  if (profileSaveModal) profileSaveModal.classList.add('hidden');
+}
+
+function confirmProfileSave() {
+  const trimmed = profileSaveModalInput ? profileSaveModalInput.value.trim() : '';
+  closeProfileSaveModal();
   if (!trimmed) return;
   const list = loadProfilesList();
   const data = getCurrentSettings();
@@ -673,7 +744,18 @@ btnProfileSave.addEventListener('click', () => {
   saveProfilesList(list);
   refreshProfileDropdown();
   profileSelect.value = id;
-});
+}
+
+btnProfileSave.addEventListener('click', openProfileSaveModal);
+if (profileSaveModalOk) profileSaveModalOk.addEventListener('click', confirmProfileSave);
+if (profileSaveModalCancel) profileSaveModalCancel.addEventListener('click', closeProfileSaveModal);
+if (profileSaveModalBackdrop) profileSaveModalBackdrop.addEventListener('click', closeProfileSaveModal);
+if (profileSaveModalInput) {
+  profileSaveModalInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmProfileSave();
+    if (e.key === 'Escape') closeProfileSaveModal();
+  });
+}
 
 btnProfileDelete.addEventListener('click', () => {
   const id = profileSelect.value;
@@ -691,7 +773,7 @@ logContainerName.addEventListener('input', () => { clearTimeout(logContainerName
 
 // ---- Swap tab: persist ----
 function bindSwapSave() {
-  [swapContainerName, swapVolumeHost, swapHeavyModel, swapHeavyCtx, swapHeavyNgl, swapHeavyCache, swapLightModel, swapLightCtx, swapLightNgl].forEach((el) => {
+  [swapContainerName, swapVolumeHost, swapHeavyModel, swapHeavyCtx, swapHeavyNgl, swapHeavyCache, swapContextShift, swapCacheReuse, swapCacheRam, swapLightModel, swapLightCtx, swapLightNgl].forEach((el) => {
     if (!el) return;
     el.addEventListener('change', saveSettings);
     el.addEventListener('input', () => { clearTimeout(el._swapT); el._swapT = setTimeout(saveSettings, 400); });
@@ -710,6 +792,9 @@ if (saved && saved.containers && Array.isArray(saved.containers) && saved.contai
     if (swapHeavyCtx && saved.swap.heavyCtx != null) swapHeavyCtx.value = saved.swap.heavyCtx;
     if (swapHeavyNgl && saved.swap.heavyNgl != null) swapHeavyNgl.value = saved.swap.heavyNgl;
     if (swapHeavyCache && saved.swap.heavyCache != null) swapHeavyCache.value = saved.swap.heavyCache;
+    if (swapContextShift && saved.swap.contextShift != null) swapContextShift.checked = !!saved.swap.contextShift;
+    if (swapCacheReuse && saved.swap.cacheReuse != null) swapCacheReuse.value = saved.swap.cacheReuse;
+    if (swapCacheRam && saved.swap.cacheRam != null) swapCacheRam.value = saved.swap.cacheRam;
     if (swapLightModel && saved.swap.lightModelPath != null) swapLightModel.value = saved.swap.lightModelPath;
     if (swapLightCtx && saved.swap.lightCtx != null) swapLightCtx.value = saved.swap.lightCtx;
     if (swapLightNgl && saved.swap.lightNgl != null) swapLightNgl.value = saved.swap.lightNgl;
@@ -724,3 +809,42 @@ if (saved && saved.containers && Array.isArray(saved.containers) && saved.contai
   bindSwapSave();
 }
 refreshProfileDropdown();
+
+// Show container runtime (Docker or Podman) in footer
+if (window.docker && typeof window.docker.getRuntime === 'function') {
+  window.docker.getRuntime().then((r) => {
+    const el = document.getElementById('footerRuntime');
+    if (el) el.textContent = 'Runtime: ' + (r && r.runtime ? r.runtime : 'docker');
+  }).catch(() => {});
+}
+
+// Install llama.cpp options: open server README
+const btnInstallLlamacpp = document.getElementById('btnInstallLlamacpp');
+if (btnInstallLlamacpp && window.app && typeof window.app.openUrl === 'function') {
+  btnInstallLlamacpp.addEventListener('click', () => {
+    window.app.openUrl('https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md');
+  });
+}
+
+// Update: run update script and show result
+const btnUpdate = document.getElementById('btnUpdate');
+const footerUpdateStatus = document.getElementById('footerUpdateStatus');
+if (btnUpdate && window.app && typeof window.app.runUpdate === 'function') {
+  btnUpdate.addEventListener('click', async () => {
+    if (footerUpdateStatus) footerUpdateStatus.textContent = 'Updating…';
+    btnUpdate.disabled = true;
+    try {
+      const result = await window.app.runUpdate();
+      if (result.ok) {
+        if (footerUpdateStatus) footerUpdateStatus.textContent = 'Update finished.';
+      } else {
+        const msg = result.error || 'Update failed.';
+        if (footerUpdateStatus) footerUpdateStatus.textContent = msg + ' (Run ldroid update in a terminal if needed.)';
+      }
+    } catch (err) {
+      if (footerUpdateStatus) footerUpdateStatus.textContent = 'Update error: ' + (err && err.message ? err.message : String(err));
+    }
+    btnUpdate.disabled = false;
+    if (footerUpdateStatus) setTimeout(() => { footerUpdateStatus.textContent = ''; }, 8000);
+  });
+}

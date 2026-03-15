@@ -2,6 +2,7 @@
 # Stop the Electron llamacpp droid UI (if running).
 # Folder-agnostic: resolves this repo's path at runtime so the root folder can have any name.
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+[ -f "$ROOT/banner.txt" ] && cat "$ROOT/banner.txt" && echo
 APP_DIR="$ROOT/systems/llamacpp-log-viewer"
 pkill -f "electron.*$APP_DIR" 2>/dev/null || true
 pkill -f "Electron.*$APP_DIR" 2>/dev/null || true
@@ -9,3 +10,5 @@ pkill -f "Electron.*$APP_DIR" 2>/dev/null || true
 pkill -f "electron.*llamacpp-log-viewer" 2>/dev/null || true
 pkill -f "electron.*llamacpp-droid" 2>/dev/null || true
 echo "Stopped."
+echo ""
+[ -t 0 ] && read -r -p "Press Enter to close..."
