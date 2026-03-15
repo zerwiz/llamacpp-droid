@@ -31,4 +31,11 @@ EOF
   echo "Updated desktop entry: $DESKTOP"
 fi
 
-echo "Update done. Run ./start.sh to launch."
+# Refresh ldroid CLI symlink in PATH
+BIN="${XDG_BIN_HOME:-$HOME/.local/bin}"
+if [ -f "$ROOT/ldroid" ] && [ -d "$BIN" ]; then
+  ln -sf "$ROOT/ldroid" "$BIN/ldroid"
+  echo "Refreshed ldroid command: $BIN/ldroid"
+fi
+
+echo "Update done. Run ldroid start (or ./start.sh) to launch."

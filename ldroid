@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# ldroid — CLI for llamacpp droid. Folder-agnostic; run from repo root or via PATH.
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+usage() {
+  cat << 'EOF'
+    ╔═══════════════════════════════════════════════════════╗
+    ║                                                       ║
+    ║   ██╗     ██╗     █████╗ ███╗   ███╗ █████╗           ║
+    ║   ██║     ██║    ██╔══██╗████╗ ████║██╔══██╗          ║
+    ║   ██║     ██║    ███████║██╔████╔██║███████║          ║
+    ║   ██║     ██║    ██╔══██║██║╚██╔╝██║██╔══██║          ║
+    ║   ██║     ██║    ██║  ██║██║ ╚═╝ ██║██║  ██║          ║
+    ║   ╚█████╗ ╚█████╗╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝          ║
+    ║                                                       ║
+    ║   ██████╗ ██████╗  ██████╗ ██╗██████╗                 ║
+    ║   ██╔══██╗██╔══██╗██╔═══██╗██║██╔══██╗                ║
+    ║   ██║  ██║██████╔╝██║   ██║██║██║  ██║                ║
+    ║   ██║  ██║██╔══██╗██║   ██║██║██║  ██║                ║
+    ║   ██████╔╝██║  ██║╚██████╔╝██║██████╔╝                ║
+    ║   ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═╝╚═════╝                 ║
+    ║                                                       ║
+    ║              Run containers. Stream logs.             ║
+    ║                                                       ║
+    ╚═══════════════════════════════════════════════════════╝
+
+ldroid — Run and manage llamacpp droid (Electron app for llama.cpp Docker containers)
+
+Usage:
+  ldroid install    Install dependencies and desktop launcher (run once after clone)
+  ldroid update     Pull latest code (if git) and refresh deps + launcher
+  ldroid start      Start the app (background)
+  ldroid stop       Stop the running app
+  ldroid app        Same as start
+  ldroid help       Show this help
+
+Examples:
+  ldroid install && ldroid start
+  ldroid update
+  ldroid stop
+EOF
+}
+
+case "${1:-help}" in
+  install)
+    exec "$ROOT/install.sh"
+    ;;
+  update)
+    exec "$ROOT/update.sh"
+    ;;
+  start|app)
+    exec "$ROOT/start.sh"
+    ;;
+  stop)
+    exec "$ROOT/stop.sh"
+    ;;
+  help|--help|-h)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

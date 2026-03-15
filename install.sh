@@ -27,3 +27,11 @@ Terminal=false
 EOF
   echo "Installed desktop entry: $DESKTOP"
 fi
+
+# Install ldroid CLI to PATH so "ldroid start" etc. work from anywhere
+BIN="${XDG_BIN_HOME:-$HOME/.local/bin}"
+if [ -f "$ROOT/ldroid" ]; then
+  mkdir -p "$BIN"
+  ln -sf "$ROOT/ldroid" "$BIN/ldroid"
+  echo "Installed ldroid command: $BIN/ldroid (ensure $BIN is in your PATH)"
+fi

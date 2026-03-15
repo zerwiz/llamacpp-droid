@@ -1,5 +1,27 @@
 # llamacpp droid
 
+```
+    ╔═══════════════════════════════════════════════════════╗
+    ║                                                       ║
+    ║   ██╗     ██╗     █████╗ ███╗   ███╗ █████╗           ║
+    ║   ██║     ██║    ██╔══██╗████╗ ████║██╔══██╗          ║
+    ║   ██║     ██║    ███████║██╔████╔██║███████║          ║
+    ║   ██║     ██║    ██╔══██║██║╚██╔╝██║██╔══██║          ║
+    ║   ██║     ██║    ██║  ██║██║ ╚═╝ ██║██║  ██║          ║
+    ║   ╚█████╗ ╚█████╗╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝          ║
+    ║                                                       ║
+    ║   ██████╗ ██████╗  ██████╗ ██╗██████╗                 ║
+    ║   ██╔══██╗██╔══██╗██╔═══██╗██║██╔══██╗                ║
+    ║   ██║  ██║██████╔╝██║   ██║██║██║  ██║                ║
+    ║   ██║  ██║██╔══██╗██║   ██║██║██║  ██║                ║
+    ║   ██████╔╝██║  ██║╚██████╔╝██║██████╔╝                ║
+    ║   ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═╝╚═════╝                 ║
+    ║                                                       ║
+    ║              Run containers. Stream logs.             ║
+    ║                                                       ║
+    ╚═══════════════════════════════════════════════════════╝
+```
+
 Desktop app to **run and manage** [llama.cpp](https://github.com/ggml-org/llama.cpp) Docker containers and **stream their logs** from one UI. No need to type `docker run` in the terminal—configure images, models, ports, and swap presets in the app.
 
 Built with **Electron**. Linux (tested with `--no-sandbox` for environments without setuid sandbox).
@@ -27,21 +49,52 @@ Built with **Electron**. Linux (tested with `--no-sandbox` for environments with
 
 ## Quick start
 
+The project is **folder-agnostic**: you can clone it into or rename the root folder to anything. All scripts resolve paths at runtime from the script location.
+
+From the project root, use the **ldroid** CLI (or the legacy scripts):
+
 ```bash
-# Clone the repo, then from the project root:
-./install.sh    # install dependencies (once)
-./start.sh      # launch the app
+./ldroid install   # install dependencies + desktop launcher + ldroid to PATH (once)
+./ldroid start     # launch the app
 ```
 
-To update the app (pull latest code and refresh dependencies):
+Or with the legacy scripts:
 
 ```bash
+./install.sh       # install dependencies (once)
+./start.sh         # launch the app
+```
+
+After `ldroid install`, the `ldroid` command is linked into `~/.local/bin` (or `$XDG_BIN_HOME`). Ensure that directory is in your PATH to run `ldroid` from anywhere.
+
+If you move or rename the project folder later, run `ldroid install` (or `./install.sh`) again so the desktop launcher and `ldroid` symlink point to the new path.
+
+**Terminal commands (ldroid):**
+
+| Command | Description |
+|---------|-------------|
+| `ldroid install` | Install deps, desktop launcher, and `ldroid` into PATH (run once) |
+| `ldroid update` | Pull latest code (if git) and refresh deps + launcher |
+| `ldroid start` | Start the app (background) |
+| `ldroid stop` | Stop the running app |
+| `ldroid app` | Same as start |
+| `ldroid help` | Show usage |
+
+From the repo root you can run `./ldroid help` or `./ldroid install` etc. After install, use `ldroid` from any directory.
+
+To update the app:
+
+```bash
+ldroid update
+# or
 ./update.sh
 ```
 
-To stop the app from the command line:
+To stop the app:
 
 ```bash
+ldroid stop
+# or
 ./stop.sh
 ```
 
@@ -61,8 +114,9 @@ To stop the app from the command line:
 
 | Path | Description |
 |------|-------------|
-| `install.sh` | Install app dependencies |
-| `update.sh` | Update app (git pull + npm install) |
+| `ldroid` | CLI: `install`, `update`, `start`, `stop`, `app`, `help` (preferred entry point) |
+| `install.sh` | Install app dependencies (+ desktop launcher + ldroid to PATH) |
+| `update.sh` | Update app (git pull + npm install + refresh launcher) |
 | `start.sh` | Start llamacpp droid |
 | `stop.sh` | Stop the running app |
 | `systems/llamacpp-log-viewer/` | Electron app (UI, docker run/create/stop/logs, profiles, swap, monitor) |
