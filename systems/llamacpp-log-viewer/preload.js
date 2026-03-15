@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('logViewer', {
 
 contextBridge.exposeInMainWorld('docker', {
   run: (config) => ipcRenderer.invoke('docker:run', config),
+  create: (config) => ipcRenderer.invoke('docker:create', config),
+  runPreset: (opts) => ipcRenderer.invoke('docker:runPreset', opts),
   stop: (containerName) => ipcRenderer.invoke('docker:stop', containerName),
   status: (containerName) => ipcRenderer.invoke('docker:status', containerName),
 });

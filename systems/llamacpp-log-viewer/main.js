@@ -8,10 +8,9 @@ app.commandLine.appendSwitch('no-sandbox');
 let mainWindow = null;
 let logProcess = null;
 
-// ---- Docker run/stop/status ----
-function dockerRun(config) {
+// ---- Docker run/create/stop/status ----
+function buildDockerContainerArgs(config) {
   const dockerArgs = [
-    'run', '-d',
     '--name', config.containerName || 'llamacpp',
     '--restart', config.restart || 'always',
     '--gpus', config.gpus || 'all',
@@ -43,7 +42,36 @@ function dockerRun(config) {
   if (config.contBatching) {
     dockerArgs.push('-cb');
   }
-  return spawn('docker', dockerArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (config.contextShift) {
+    dockerArgs.push('--context-shift');
+  }
+  if (config.cachePrompt === false) {
+    dockerArgs.push('--no-cache-prompt');
+  }
+  if (config.cacheReuse != null && config.cacheReuse !== '' && parseInt(config.cacheReuse, 10) > 0) {
+    dockerArgs.push('--cache-reuse', String(config.cacheReuse).trim());
+  }
+  if (config.cacheTypeK && String(config.cacheTypeK).trim()) {
+    dockerArgs.push('--cache-type-k', String(config.cacheTypeK).trim());
+  }
+  if (config.cacheTypeV && String(config.cacheTypeV).trim()) {
+    dockerArgs.push('--cache-type-v', String(config.cacheTypeV).trim());
+  }
+  if (config.cacheRam != null && config.cacheRam !== '') {
+    dockerArgs.push('-cram', String(config.cacheRam).trim());
+  }
+  if (config.sleepIdleSeconds != null && config.sleepIdleSeconds !== '' && parseInt(config.sleepIdleSeconds, 10) > 0) {
+    dockerArgs.push('--sleep-idle-seconds', String(config.sleepIdleSeconds).trim());
+  }
+  return dockerArgs;
+}
+
+function dockerRun(config) {
+  return spawn('docker', ['run', '-d', ...buildDockerContainerArgs(config)], { stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+function dockerCreate(config) {
+  return spawn('docker', ['create', ...buildDockerContainerArgs(config)], { stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 function dockerStop(containerName) {
@@ -176,6 +204,28 @@ ipcMain.handle('docker:run', async (_, config) => {
   });
 });
 
+// Remove existing container then create (idempotent create, container not started)
+ipcMain.handle('docker:create', async (_, config) => {
+  const name = config.containerName || 'llamacpp';
+  return new Promise((resolve) => {
+    const doCreate = () => {
+      const p = dockerCreate(config);
+      let stdout = '';
+      let stderr = '';
+      p.stdout.on('data', (c) => { stdout += c; });
+      p.stderr.on('data', (c) => { stderr += c; });
+      p.on('close', (code) => {
+        if (code === 0) resolve({ ok: true, stdout: stdout.trim() });
+        else resolve({ ok: false, error: stderr.trim() || stdout.trim() || 'docker create failed' });
+      });
+      p.on('error', (err) => resolve({ ok: false, error: err.message }));
+    };
+    const rm = dockerRm(name);
+    rm.on('close', () => doCreate());
+    rm.on('error', () => doCreate());
+  });
+});
+
 ipcMain.handle('docker:stop', async (_, containerName) => {
   return new Promise((resolve) => {
     const p = dockerStop(containerName || 'llamacpp');
@@ -190,6 +240,70 @@ ipcMain.handle('docker:stop', async (_, containerName) => {
 
 ipcMain.handle('docker:status', async (_, containerName) => {
   return dockerInspect(containerName || 'llamacpp');
+});
+
+function presetConfig(containerName, preset, volumeHost, opts = {}) {
+  const base = {
+    containerName: containerName || 'llamacpp',
+    image: 'ghcr.io/ggml-org/llama.cpp:server-cuda',
+    volumeHost: volumeHost || '/home/zerwiz/.lmstudio/models',
+    host: '0.0.0.0',
+    port: 8080,
+    memory: '24g',
+    memorySwap: '32g',
+    restart: 'always',
+    network: 'host',
+    gpus: 'all',
+  };
+  if (preset === 'heavy') {
+    const heavyModel = (opts.heavyModelPath && opts.heavyModelPath.trim()) || '/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q3_K_S.gguf';
+    const cache = (opts.heavyCache && opts.heavyCache.trim()) || 'q4_0';
+    return {
+      ...base,
+      modelPath: heavyModel,
+      ctxSize: opts.heavyCtx != null && opts.heavyCtx !== '' ? parseInt(String(opts.heavyCtx), 10) : 20000,
+      ngl: opts.heavyNgl != null && opts.heavyNgl !== '' ? parseInt(String(opts.heavyNgl), 10) : 42,
+      cacheTypeK: cache,
+      cacheTypeV: cache,
+    };
+  }
+  const lightModel = (opts.lightModelPath && opts.lightModelPath.trim()) || '/models/path/to/small-model.gguf';
+  return {
+    ...base,
+    modelPath: lightModel,
+    ctxSize: opts.lightCtx != null && opts.lightCtx !== '' ? parseInt(String(opts.lightCtx), 10) : 4096,
+    ngl: opts.lightNgl != null && opts.lightNgl !== '' ? parseInt(String(opts.lightNgl), 10) : 99,
+  };
+}
+
+ipcMain.handle('docker:runPreset', async (_, { containerName, preset, volumeHost, lightModelPath, heavyModelPath, heavyCtx, heavyNgl, heavyCache, lightCtx, lightNgl }) => {
+  const name = containerName || 'llamacpp';
+  const config = presetConfig(name, preset, volumeHost, {
+    lightModelPath,
+    heavyModelPath,
+    heavyCtx,
+    heavyNgl,
+    heavyCache,
+    lightCtx,
+    lightNgl,
+  });
+  return new Promise((resolve) => {
+    const doRun = () => {
+      const p = dockerRun(config);
+      let stdout = '';
+      let stderr = '';
+      p.stdout.on('data', (c) => { stdout += c; });
+      p.stderr.on('data', (c) => { stderr += c; });
+      p.on('close', (code) => {
+        if (code === 0) resolve({ ok: true, stdout: stdout.trim() });
+        else resolve({ ok: false, error: stderr.trim() || stdout.trim() || 'docker run failed' });
+      });
+      p.on('error', (err) => resolve({ ok: false, error: err.message }));
+    };
+    const rm = dockerRm(name);
+    rm.on('close', () => doRun());
+    rm.on('error', () => doRun());
+  });
 });
 
 ipcMain.handle('find-gguf', () => {

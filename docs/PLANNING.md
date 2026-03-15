@@ -3,14 +3,17 @@
 ## Overview
 
 - **llama.cpp** runs in Docker (e.g. container name `llamacpp`), serving on port 8080.
-- **llamacpp droid** is an Electron app that runs containers and streams `docker logs -f <container>` into a desktop UI.
+- **llamacpp droid** is an Electron app that runs/stops those containers and streams `docker logs -f <container>` (and optional system monitor) from a desktop UI.
 
-## Current scope
+## Scope
 
-1. llamacpp droid: connect to Docker, run/stop containers, run `docker logs -f <container>`, display output in a scrollable, follow-mode UI.
-2. Optional: configurable container name and “clear” / “pause” in the UI.
+1. **Containers** — Add/delete container configs; run/stop via `docker run` / `docker stop`; status via `docker inspect`.
+2. **Logs** — Live `docker logs -f` for any container in a scrollable viewer.
+3. **Monitor** — Live `nvidia-smi` and `top` (when the Monitor tab is active).
+4. **Settings** — All container configs and log container name stored in localStorage so updates/installs keep the user’s setup.
+5. **Scripts** — install, update, start, stop at repo root; .desktop entry for launcher.
 
 ## Integration
 
-- Viewer assumes Docker is available and the user can run `docker logs`.
-- No change to llama.cpp server or API; viewer is read-only (logs only).
+- Requires Docker and (for GPU) `nvidia-smi`. No change to the llama.cpp server or its API.
+- See **docs/SYSTEMS.md** for full functionality and behaviour.

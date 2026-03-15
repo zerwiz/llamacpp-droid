@@ -10,19 +10,100 @@
 <body>
   <header class="header">
     <div class="header-title">
-      <span class="logo">◇</span>
+      <img src="icon.png" alt="" class="logo" />
       <h1>llamacpp droid</h1>
+    </div>
+    <div class="header-profiles">
+      <label class="profile-label">Profile</label>
+      <select id="profileSelect" class="profile-select" title="Load a saved settings profile">
+        <option value="">— Load profile —</option>
+      </select>
+      <button type="button" class="btn btn-secondary btn-profile-save" id="btnProfileSave">Save current as…</button>
+      <button type="button" class="btn btn-secondary btn-profile-delete" id="btnProfileDelete" title="Delete selected profile">Delete</button>
     </div>
     <nav class="tabs" id="nav">
       <span id="container-tabs"></span>
       <button type="button" class="tab tab-add" id="btnAddContainer" title="Add container">+ Add</button>
       <button type="button" class="tab" data-tab="logs">Logs</button>
+      <button type="button" class="tab" data-tab="swap">Swap</button>
       <button type="button" class="tab" data-tab="monitor">Monitor</button>
     </nav>
   </header>
 
   <div id="panels-wrapper">
     <div id="container-panels"></div>
+    <section id="panel-swap" class="panel">
+      <div class="swap-page">
+        <div class="swap-intro">
+          <h2>Local AI “swapping”</h2>
+          <p>In local AI, <strong>swapping</strong> usually means:</p>
+          <ul>
+            <li><strong>Context shift</strong> — Move the KV cache (conversation memory) so you can keep talking past the context limit. Old tokens are dropped to make room for new ones (no restart).</li>
+            <li><strong>KV cache type</strong> — Use quantized cache (e.g. <code>q4_0</code>) to fit more context in VRAM (less precision, more room).</li>
+            <li><strong>Model swap</strong> — Switch between a heavy model (e.g. 30B coder) and a light one (e.g. 7B chat) so the GPU isn’t stuck on one model 24/7. Tools like <strong>Llama-swap</strong> (a proxy between your editor and the API) can swap models on demand; here you use presets to do it manually.</li>
+          </ul>
+          <p>On each <strong>container</strong> form you can enable <strong>Context shift</strong>, <strong>Cache prompt</strong>, <strong>Cache reuse</strong>, and set <strong>KV cache K/V</strong> and <strong>Cache RAM</strong>. Below: quick presets to swap the same container between a heavy and a light setup.</p>
+          <p class="swap-docs"><a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md" target="_blank" rel="noopener">Read online: llama.cpp server README</a> — flags and defaults for your server version.</p>
+        </div>
+        <div class="swap-presets card">
+          <h3>Quick swap (presets)</h3>
+          <p class="swap-hint">Stops and removes the container, then starts it with the chosen preset. Same container name, different model/context. Preset values are configurable below; see the server README for supported options.</p>
+          <div class="form-row two-cols">
+            <div>
+              <label>Container name</label>
+              <input type="text" id="swapContainerName" value="llamacpp" placeholder="llamacpp" spellcheck="false" />
+            </div>
+            <div>
+              <label>Models volume (host path)</label>
+              <input type="text" id="swapVolumeHost" value="/home/zerwiz/.lmstudio/models" placeholder="/path/to/models" spellcheck="false" />
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Heavy model path (in container)</label>
+            <input type="text" id="swapHeavyModel" value="/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q3_K_S.gguf" placeholder="/models/.../model.gguf" spellcheck="false" />
+          </div>
+          <div class="form-row three-cols">
+            <div>
+              <label>Heavy ctx-size</label>
+              <input type="number" id="swapHeavyCtx" value="20000" min="512" />
+            </div>
+            <div>
+              <label>Heavy ngl</label>
+              <input type="number" id="swapHeavyNgl" value="42" min="0" />
+            </div>
+            <div>
+              <label>Heavy KV cache</label>
+              <select id="swapHeavyCache">
+                <option value="q4_0">q4_0</option>
+                <option value="q8_0">q8_0</option>
+                <option value="f16">f16</option>
+                <option value="q4_1">q4_1</option>
+                <option value="q5_0">q5_0</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Light model path (in container)</label>
+            <input type="text" id="swapLightModel" value="/models/path/to/small-model.gguf" placeholder="/models/.../model.gguf" spellcheck="false" />
+          </div>
+          <div class="form-row two-cols">
+            <div>
+              <label>Light ctx-size</label>
+              <input type="number" id="swapLightCtx" value="4096" min="512" />
+            </div>
+            <div>
+              <label>Light ngl</label>
+              <input type="number" id="swapLightNgl" value="99" min="0" />
+            </div>
+          </div>
+          <div class="swap-actions">
+            <button type="button" class="btn btn-primary" id="swapHeavy">Heavy — 30B Coder (20k ctx, KV q4_0)</button>
+            <button type="button" class="btn btn-secondary" id="swapLight">Light — 7B Chat (4k ctx)</button>
+          </div>
+          <div class="runner-message" id="swapMessage"></div>
+        </div>
+      </div>
+    </section>
     <section id="panel-monitor" class="panel">
       <div class="monitor-page">
         <div class="monitor-block">
@@ -139,6 +220,65 @@
               </label>
             </div>
           </div>
+          <div class="form-row three-cols">
+            <div class="form-row-check">
+              <label class="checkbox-label">
+                <input type="checkbox" name="contextShift" />
+                <span>Context shift (--context-shift)</span>
+              </label>
+            </div>
+            <div class="form-row-check">
+              <label class="checkbox-label">
+                <input type="checkbox" name="cachePrompt" checked />
+                <span>Cache prompt (--cache-prompt)</span>
+              </label>
+            </div>
+            <div>
+              <label>Cache reuse (--cache-reuse)</label>
+              <input type="number" name="cacheReuse" min="0" placeholder="0 = off" title="Min chunk size to reuse KV cache via shifting; 0 disables" />
+            </div>
+          </div>
+          <div class="form-row three-cols">
+            <div>
+              <label>KV cache K (--cache-type-k)</label>
+              <select name="cacheTypeK">
+                <option value="">default</option>
+                <option value="f32">f32</option>
+                <option value="f16">f16</option>
+                <option value="bf16">bf16</option>
+                <option value="q8_0">q8_0</option>
+                <option value="q4_0">q4_0</option>
+                <option value="q4_1">q4_1</option>
+                <option value="iq4_nl">iq4_nl</option>
+                <option value="q5_0">q5_0</option>
+                <option value="q5_1">q5_1</option>
+              </select>
+            </div>
+            <div>
+              <label>KV cache V (--cache-type-v)</label>
+              <select name="cacheTypeV">
+                <option value="">default</option>
+                <option value="f32">f32</option>
+                <option value="f16">f16</option>
+                <option value="bf16">bf16</option>
+                <option value="q8_0">q8_0</option>
+                <option value="q4_0">q4_0</option>
+                <option value="q4_1">q4_1</option>
+                <option value="iq4_nl">iq4_nl</option>
+                <option value="q5_0">q5_0</option>
+                <option value="q5_1">q5_1</option>
+              </select>
+            </div>
+            <div>
+              <label>Cache RAM (MiB) (-cram)</label>
+              <input type="number" name="cacheRam" min="-1" placeholder="default" title="Max KV cache size in MiB; -1 no limit, 0 disable" />
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Sleep idle (seconds) — <code>--sleep-idle-seconds</code></label>
+            <input type="number" name="sleepIdleSeconds" min="0" placeholder="off" title="Unload model from VRAM after N seconds idle; GPU can drop to low power. 0 or empty = disabled." />
+            <span class="form-hint">Reduces GPU power when idle. e.g. 600 = 10 min. Leave empty for always-on.</span>
+          </div>
           <div class="form-row two-cols">
             <div>
               <label>Restart</label>
@@ -157,6 +297,7 @@
             </div>
           </div>
           <div class="form-actions">
+            <button type="button" class="btn btn-secondary btn-create">Create container</button>
             <button type="submit" class="btn btn-primary">Run container</button>
             <button type="button" class="btn btn-secondary btn-stop">Stop container</button>
             <button type="button" class="btn btn-danger btn-delete">Delete container</button>

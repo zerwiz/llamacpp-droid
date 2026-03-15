@@ -28,8 +28,9 @@ npm start
 
 In the app:
 
-1. **Container tab**: Adjust options if needed (defaults match the standard llama.cpp server-cuda run). Click **Run container** to start (existing container with the same name is removed first). Click **Stop container** to stop. Status shows whether the container is running.
-2. **Logs tab**: Set the container name (default `llamacpp`), click **Start stream** to follow logs, **Clear** to clear the panel, **Stop stream** to stop following.
+1. **Container tab**: Adjust options if needed (defaults match the standard llama.cpp server-cuda run). **Create container** creates the container from the form but does not start it. **Run container** removes any existing container with the same name and starts a new one. **Stop container** stops the running container. Status shows whether the container is running.
+2. **Profiles** (header): Use the **Profile** dropdown to **load** a saved settings profile (all containers, Logs name, Swap tab). Use **Save current as…** to save the current setup under a name (e.g. “Heavy 30B”, “Light 7B”). Use **Delete** to remove the selected profile from the list. Profiles let you switch between different model/config setups quickly.
+3. **Logs tab**: Set the container name (default `llamacpp`), click **Start stream** to follow logs, **Clear** to clear the panel, **Stop stream** to stop following.
 
 ## Ports / APIs
 
