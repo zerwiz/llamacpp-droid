@@ -31,12 +31,17 @@ if [[ "$ROOT" == /opt/* ]]; then
   BIN="/usr/local/bin"
   ICON_SRC="$ROOT/systems/llamacpp-log-viewer/icon.png"
   ICON_NAME="llamacpp-droid"
-  # Always reinstall icon so any future icon.png updates are applied to the menu
-  sudo mkdir -p /usr/share/icons/hicolor/256x256/apps
-  if [ -f "$ICON_SRC" ]; then
-    sudo cp "$ICON_SRC" "/usr/share/icons/hicolor/256x256/apps/${ICON_NAME}.png"
-    sudo chmod 644 "/usr/share/icons/hicolor/256x256/apps/${ICON_NAME}.png"
+  # Always reinstall icon in 48x48 and 256x256 so launchers show it (some DEs use 48x48)
+  if [ ! -f "$ICON_SRC" ]; then
+    echo "Warning: $ICON_SRC not found; app menu may show generic icon."
   fi
+  for SIZE in 48x48 256x256; do
+    sudo mkdir -p "/usr/share/icons/hicolor/$SIZE/apps"
+    if [ -f "$ICON_SRC" ]; then
+      sudo cp "$ICON_SRC" "/usr/share/icons/hicolor/$SIZE/apps/${ICON_NAME}.png"
+      sudo chmod 644 "/usr/share/icons/hicolor/$SIZE/apps/${ICON_NAME}.png"
+    fi
+  done
   if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     sudo gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
   fi
@@ -52,28 +57,44 @@ Categories=Development;Utility;
 Terminal=false
 EOF
   sudo chmod 644 "$DESKTOP"
-  progress 85 "Refreshing ldroid command..."
-  sudo ln -sf "$ROOT/ldroid" "$BIN/ldroid"
+  progress 85 "Refreshing ldroid command and install path..."
+  sudo mkdir -p /etc/llamacpp-droid
+  printf '%s' "$ROOT" | sudo tee /etc/llamacpp-droid/install-dir >/dev/null
+  if [ -f "$ROOT/ldroid-wrapper" ]; then
+    sudo cp "$ROOT/ldroid-wrapper" "$BIN/ldroid"
+    sudo chmod 755 "$BIN/ldroid"
+  else
+    sudo ln -sf "$ROOT/ldroid" "$BIN/ldroid"
+  fi
   if command -v update-desktop-database >/dev/null 2>&1; then
     sudo update-desktop-database "$APPS" 2>/dev/null || true
   fi
 else
   progress 70 "Refreshing desktop entry and ldroid..."
-  # Running from a clone (not /opt): update user-local .desktop and ldroid
+  # Running from a clone (not /opt): install icon into user theme and use theme name so launcher shows it
   ICON_SRC="$ROOT/systems/llamacpp-log-viewer/icon.png"
+  ICON_NAME="llamacpp-droid"
+  ICONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+  APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
   if [ -f "$ICON_SRC" ]; then
-    APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    for SIZE in 48x48 256x256; do
+      mkdir -p "$ICONS_DIR/$SIZE/apps"
+      cp "$ICON_SRC" "$ICONS_DIR/$SIZE/apps/${ICON_NAME}.png"
+      chmod 644 "$ICONS_DIR/$SIZE/apps/${ICON_NAME}.png"
+    done
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -f "$ICONS_DIR" 2>/dev/null || true
+    fi
     mkdir -p "$APPS"
     DESKTOP="$APPS/llamacpp-droid.desktop"
     EXEC_QUOTED="\"$ROOT/start.sh\""
-    ICON_QUOTED="\"$ICON_SRC\""
     cat > "$DESKTOP" << EOF
 [Desktop Entry]
 Type=Application
 Name=llamacpp droid
 Comment=Run llama.cpp Docker containers and stream logs
 Exec=$EXEC_QUOTED
-Icon=$ICON_QUOTED
+Icon=$ICON_NAME
 Categories=Development;Utility;
 Terminal=false
 EOF
@@ -82,9 +103,17 @@ EOF
       update-desktop-database "$APPS" 2>/dev/null || true
     fi
   fi
+  CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/llamacpp-droid"
+  mkdir -p "$CONFIG_DIR"
+  printf '%s' "$ROOT" > "$CONFIG_DIR/install-dir"
   BIN="${XDG_BIN_HOME:-$HOME/.local/bin}"
-  if [ -f "$ROOT/ldroid" ] && [ -d "$BIN" ]; then
-    ln -sf "$ROOT/ldroid" "$BIN/ldroid"
+  if [ -d "$BIN" ]; then
+    if [ -f "$ROOT/ldroid-wrapper" ]; then
+      cp "$ROOT/ldroid-wrapper" "$BIN/ldroid"
+      chmod 755 "$BIN/ldroid"
+    elif [ -f "$ROOT/ldroid" ]; then
+      ln -sf "$ROOT/ldroid" "$BIN/ldroid"
+    fi
   fi
 fi
 

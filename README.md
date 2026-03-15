@@ -51,14 +51,17 @@ Built with **Electron**. Linux (tested with `--no-sandbox` for environments with
 
 The project is **folder-agnostic**: you can clone it into or rename the root folder to anything. All scripts resolve paths at runtime from the script location.
 
-From the project root, run the installer (requires **sudo**); it copies the app to **/opt/llamacpp-droid** and adds a system-wide launcher and `ldroid` command:
+From the project root, run the installer. It will ask where to install:
+
+- **[1] /opt/llamacpp-droid** — System-wide (requires sudo). App menu and `ldroid` for all users.
+- **[2] This folder** — User-only (no sudo). App menu and `ldroid` for you only; app runs from the folder it’s in.
 
 ```bash
-./ldroid install   # or: ./install.sh — installs to /opt, adds app menu entry and ldroid (once)
+./ldroid install   # or: ./install.sh — prompts for location, or use: ldroid install 2  or  ldroid install --local
 ./ldroid start     # launch the app
 ```
 
-After install, the app lives in **/opt/llamacpp-droid**, the desktop entry is in **/usr/share/applications/llamacpp-droid.desktop**, and **ldroid** is at **/usr/local/bin/ldroid** (available to all users).
+After a **system-wide** install, the app lives in **/opt/llamacpp-droid**, the desktop entry is in **/usr/share/applications/llamacpp-droid.desktop**, and **ldroid** is at **/usr/local/bin/ldroid**. After a **this-folder** install, the app stays in the current directory; the desktop entry and `ldroid` are in `~/.local/share/applications` and `~/.local/bin`. The install path is stored (system: **/etc/llamacpp-droid/install-dir**, user: **~/.config/llamacpp-droid/install-dir**) so **`ldroid`** from PATH always finds the app; if you **move the folder**, run **`./update.sh`** from the new location (or run **`ldroid`** once—it may find the new path and update the config).
 
 To update the installed app, run **`ldroid update`** (or `sudo /opt/llamacpp-droid/update.sh`); it pulls latest code and refreshes the launcher.
 
@@ -66,7 +69,7 @@ To update the installed app, run **`ldroid update`** (or `sudo /opt/llamacpp-dro
 
 | Command | Description |
 |---------|-------------|
-| `ldroid install` | Install to /opt/llamacpp-droid, system .desktop, and /usr/local/bin/ldroid (run once, needs sudo) |
+| `ldroid install [1 or 2 or --local]` | Install app: prompt for location, or pass `2`/`--local` for this folder (no sudo); `1`/`--system` for /opt (sudo) |
 | `ldroid update` | Pull latest code (if git) and refresh deps + launcher |
 | `ldroid start` | Start the app (background) |
 | `ldroid stop` | Stop the running app |
@@ -118,7 +121,7 @@ ldroid uninstall
 | Path | Description |
 |------|-------------|
 | `ldroid` | CLI: `install`, `update`, `start`, `stop`, `app`, `uninstall`, `help` (preferred entry point) |
-| `install.sh` | Install to /opt/llamacpp-droid, system .desktop, /usr/local/bin/ldroid (requires sudo) |
+| `install.sh` | Install app: prompts for /opt (system-wide, sudo) or this folder (user-only); or pass `1`, `2`, `--system`, `--local` |
 | `update.sh` | Update app (git pull + npm install + refresh launcher) |
 | `uninstall.sh` | Remove /opt install, desktop entry, and ldroid (requires sudo) |
 | `start.sh` | Start llamacpp droid |

@@ -8,6 +8,6 @@ alwaysApply: false
 
 - Use **bash** (`#!/usr/bin/env bash`). Paths: resolve at runtime from script location (e.g. `ROOT="$(cd "$(dirname "$0")" && pwd)"`); project is folder-agnostic.
 - **Safety:** Use `[ -f "$VAR" ]` before copying or using files. For system-wide installs use `sudo` only where needed (e.g. `/opt`, `/usr/share`, `/usr/local/bin`). Create dirs with `mkdir -p` before copy.
-- **Icon/desktop:** When installing or updating, always reinstall the app icon from `systems/llamacpp-log-viewer/icon.png` to `/usr/share/icons/hicolor/256x256/apps/llamacpp-droid.png` and run `gtk-update-icon-cache` when available so menu icon updates with future icon changes.
+- **Icon/desktop:** When installing or updating, always reinstall the app icon from `systems/llamacpp-log-viewer/icon.png` into **both** `/usr/share/icons/hicolor/48x48/apps/` and `256x256/apps/` as `llamacpp-droid.png` (so launchers that prefer 48x48 show it). Run `gtk-update-icon-cache` when available. Warn if icon.png is missing.
 - **Desktop entry:** Use `Icon=llamacpp-droid` (theme name, no path). Refresh `.desktop` and optionally `update-desktop-database` after writing it.
 - Prefer clear progress messages and short comments for steps that affect launcher, PATH, or icon.

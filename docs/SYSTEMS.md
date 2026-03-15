@@ -16,11 +16,12 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 
 ### 2.1 `ldroid` (CLI entry point)
 
-- **Location:** repo root. After `ldroid install`, also symlinked as `~/.local/bin/ldroid` (or `$XDG_BIN_HOME/ldroid`).
-- **What it does:**
-  - Sets `ROOT` to the directory containing the script (`dirname "$0"`), so it works no matter what the repo folder is called or where it lives.
+- **Location:** repo root. After install, the **`ldroid`** in PATH is a **wrapper** (from **`ldroid-wrapper`**) copied to `/usr/local/bin/ldroid` or `~/.local/bin/ldroid`; it reads the install path from config and exec’s the real **`ldroid`** in the install folder.
+- **Remembered install path:** System install writes **`/etc/llamacpp-droid/install-dir`**; user install writes **`~/.config/llamacpp-droid/install-dir`**. The wrapper uses this so **`ldroid`** works from PATH even when the folder is moved; if the path is missing, the wrapper tries to find a directory containing `ldroid` and `systems/llamacpp-log-viewer/package.json` and updates the user config.
+- **What the real `ldroid` does:**
+  - Sets `ROOT` to the directory containing the script (`dirname "$0"`).
   - Reads the first argument (default: `help`). Dispatches to:
-    - `install` → `exec "$ROOT/install.sh"`
+    - `install` → `exec "$ROOT/install.sh" "$2"` (passes optional `1`, `2`, `--system`, `--local` for install location).
     - `update` → `exec "$ROOT/update.sh"`
     - `start` or `app` → `exec "$ROOT/start.sh"`
     - `stop` → `exec "$ROOT/stop.sh"`
@@ -32,21 +33,15 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 ### 2.2 `install.sh`
 
 - **What it does, in order:**
-  1. Sets `ROOT` and **`INSTALL_DIR=/opt/llamacpp-droid`**. Shows banner.
-  2. **Detects environment** so the install adapts to the machine:
-     - **OS:** `uname -s` and `/etc/os-release` (NAME, VERSION_ID) for display; warns if not Linux.
-     - **Architecture:** `uname -m` (e.g. x86_64, aarch64).
-     - **Node/npm:** Checks they exist in PATH; exits with a clear message if missing. Records version and path for the summary.
-     - **Docker/Podman:** Checks for `docker` then `podman` in PATH; reports which is available (app uses one for containers).
-     - **Sudo:** Required for /opt and /usr; exits if sudo is missing; if sudo needs a password, prompts later.
-     - **Desktop path:** Uses **`APPS=/usr/share/applications`** (standard on Linux).
-  3. Prints a short summary (OS, Arch, Node, npm, Docker, Install path) then continues.
-  4. Runs **`npm install`** in `$ROOT/systems/llamacpp-log-viewer` (so the source tree has deps).
-  5. **Installs to /opt:** uses **sudo** to create `$INSTALL_DIR`, then copies the repo there with **rsync** (or **cp** if no rsync), excluding `node_modules`; preserves `.git` for updates. Runs **`sudo env PATH="$PATH" npm install`** in the install dir so the same Node/npm as the user are used.
-  6. Writes a **system .desktop** file to **`$APPS/llamacpp-droid.desktop`** (via **sudo tee**) with `Exec=...` and `Icon=...`.
-  7. Creates **`/usr/local/bin/ldroid`** → symlink to **`/opt/llamacpp-droid/ldroid`** (via **sudo ln -sf**).
-  8. Runs **`update-desktop-database`** on `$APPS` when available.
-- **Requires sudo** for writing to /opt and /usr. Run once after cloning; the app then runs from /opt and appears in the app menu for all users.
+  1. Sets **`ROOT`** from script location. Shows banner.
+  2. **Detects environment** (OS, Arch, Node/npm, Docker/Podman). **Sudo** is only required when installing to /opt.
+  3. **Asks where to install** (unless non-interactive or an argument is passed):
+     - **Choice 1 (default) or arg `1`/`--system`:** **`INSTALL_DIR=/opt/llamacpp-droid`** (system-wide). Requires sudo. Copies repo to /opt, installs icon, .desktop, writes **`/etc/llamacpp-droid/install-dir`**, installs **`ldroid-wrapper`** as `/usr/local/bin/ldroid`.
+     - **Choice 2 or arg `2`/`--local`:** **`INSTALL_DIR=$ROOT`** (this folder, user-only). No sudo. Installs icon, .desktop, writes **`~/.config/llamacpp-droid/install-dir`**, installs **`ldroid-wrapper`** as `~/.local/bin/ldroid`.
+  4. Runs **`npm install`** in `$ROOT/systems/llamacpp-log-viewer` (both paths).
+  5. **If system-wide:** copies repo to `$INSTALL_DIR`, runs `sudo npm install` there, installs system icon (48×48 and 256×256), system .desktop, **install-dir**, and **ldroid-wrapper** to `/usr/local/bin/ldroid`.
+  6. **If this folder:** installs user icon, user .desktop, **install-dir** in `~/.config/llamacpp-droid`, and **ldroid-wrapper** to `~/.local/bin/ldroid`. If you move the folder, run **`./update.sh`** from the new location (or run **`ldroid`** once; the wrapper may find the new path and update the config).
+- **Sudo** only when installing to /opt. Run once after cloning; use **`ldroid install 2`** or **`ldroid install --local`** to install to the current folder without sudo.
 
 ### 2.3 `update.sh`
 
@@ -54,8 +49,8 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
   1. Sets `ROOT` via `cd "$(dirname "$0")" && pwd` (when run as `/opt/llamacpp-droid/update.sh`, `ROOT` is `/opt/llamacpp-droid`).
   2. If `$ROOT/.git` exists: runs **`git pull --rebase`** (or plain `git pull`) to fetch latest code.
   3. `cd`s to the app folder and runs **`npm install`** (or **`sudo npm install`** when `$ROOT` is under `/opt`) to refresh dependencies.
-  4. **If `$ROOT` is under /opt:** writes the **.desktop** file to **`/usr/share/applications/llamacpp-droid.desktop`** (sudo), refreshes **`/usr/local/bin/ldroid`** (sudo), and runs **update-desktop-database**.
-  5. **Else** (running from a clone): writes **.desktop** to `~/.local/share/applications/` (with quoted paths for spaces) and **ldroid** to `~/.local/bin` (or `$XDG_BIN_HOME`).
+  4. **If `$ROOT` is under /opt:** writes .desktop, **`/etc/llamacpp-droid/install-dir`** with `$ROOT`, and **ldroid-wrapper** to `/usr/local/bin/ldroid`; **update-desktop-database**.
+  5. **Else** (running from a clone): writes .desktop, **`~/.config/llamacpp-droid/install-dir`** with `$ROOT`, and **ldroid-wrapper** (or symlink) to `~/.local/bin/ldroid`. So running **update** from a moved folder updates the remembered path.
   6. Prints a message suggesting `ldroid start` or `./start.sh` to launch.
 
 ### 2.4 `start.sh`
@@ -78,11 +73,12 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 ### 2.6 `uninstall.sh`
 
 - **What it does, in order:**
-  1. Shows the banner from `$ROOT/banner.txt` if present.
-  2. Unless **`-y`** or **`--yes`** is passed, prompts: “Uninstall? [y/N]” and exits 0 if the user does not confirm.
-  3. **Progress:** Stops the app (pkill Electron by install path and fallbacks), removes **`/usr/share/applications/llamacpp-droid.desktop`**, removes **`/usr/local/bin/ldroid`**, removes **`/opt/llamacpp-droid`** (entire directory), then runs **update-desktop-database** when available. Prints step percentages (0, 15, 20, 40, 45, 60, 65, 90, 95, 100).
-  4. Prints “Uninstall complete.” and notes that the clone (if any) is unchanged.
-- **Requires sudo** for removing files under /usr and /opt. Safe to run as **`ldroid uninstall`** (from PATH) or **`./uninstall.sh`** from repo or from /opt before it is removed.
+  1. **Reads the remembered install path:** **`/etc/llamacpp-droid/install-dir`** (system) or **`~/.config/llamacpp-droid/install-dir`** (user). If neither exists, assumes system install at `/opt/llamacpp-droid`.
+  2. Unless **`-y`** or **`--yes`** is passed, prompts with the list of what will be removed and “Uninstall? [y/N]”.
+  3. **If system:** Stops the app, removes system .desktop, `/usr/local/bin/ldroid` (wrapper), **`$INSTALL_DIR`** (e.g. /opt), **`/etc/llamacpp-droid/`**, and runs **update-desktop-database**.
+  4. **If user:** Stops the app, removes user .desktop, `~/.local/bin/ldroid` (wrapper), and **`~/.config/llamacpp-droid/`**; does **not** delete the app folder.
+  5. Prints “Uninstall complete.”
+- **Sudo** only for system uninstall. Safe to run as **`ldroid uninstall`** (wrapper finds install path from config).
 
 ---
 
@@ -313,9 +309,10 @@ So when you click **Stop container**:
 | File / path       | Role |
 |-------------------|------|
 | **Root**          | |
-| `ldroid`          | CLI dispatcher: install, update, start, stop, app, uninstall, help; prints banner from banner.txt for help. |
+| `ldroid`          | CLI dispatcher: install, update, start, stop, app, uninstall, help. When run from PATH, you get the wrapper (see `ldroid-wrapper`). |
+| `ldroid-wrapper`  | Script installed to PATH by install/update; reads install path from `/etc/llamacpp-droid/install-dir` or `~/.config/llamacpp-droid/install-dir`, exec’s real `ldroid`; if path missing, tries to find app and update user config. |
 | `banner.txt`      | ASCII banner (LLAMA + DROID + tagline); used by all root scripts and ldroid help. |
-| `install.sh`      | Install to /opt, system .desktop, /usr/local/bin/ldroid; progress %. |
+| `install.sh`      | Prompts for install location: /opt (system, sudo) or this folder (user-only); writes install-dir, installs ldroid-wrapper to PATH. Progress %. |
 | `update.sh`       | Git pull (if repo), npm install, refresh .desktop and ldroid; progress %. |
 | `uninstall.sh`    | Remove /opt install, desktop entry, ldroid; confirm prompt unless -y/--yes; progress %. |
 | `start.sh`        | nohup npm start in app dir, disown; shows banner. |

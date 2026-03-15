@@ -10,7 +10,11 @@ usage() {
 ldroid — Run and manage llamacpp droid (Electron app for llama.cpp Docker containers)
 
 Usage:
-  ldroid install    Install to /opt, desktop entry, and ldroid command (run once, needs sudo)
+  ldroid install [1|2|--system|--local]
+                 Install app. At run time you can choose:
+                   1 or --system  /opt/llamacpp-droid (system-wide, sudo)
+                   2 or --local   This folder (user-only, no sudo)
+                 Or run without args to be prompted.
   ldroid update     Pull latest code (if git) and refresh deps + launcher
   ldroid start      Start the app (background)
   ldroid stop       Stop the running app
@@ -20,15 +24,16 @@ Usage:
 
 Examples:
   ldroid install && ldroid start
+  ldroid install 2
+  ldroid install --local
   ldroid update
-  ldroid uninstall
   ldroid uninstall --yes
 EOF
 }
 
 case "${1:-help}" in
   install)
-    exec "$ROOT/install.sh"
+    exec "$ROOT/install.sh" "$2"
     ;;
   update)
     exec "$ROOT/update.sh"
