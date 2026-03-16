@@ -34,7 +34,7 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 
 - **What it does, in order:**
   1. Sets **`ROOT`** from script location. Shows banner.
-  2. **Detects environment** (OS, Arch, Node/npm, Docker/Podman). **Sudo** is only required when installing to /opt.
+  2. **Detects environment** (OS, Arch, Node/npm, Docker/Podman, and **Monitor support**: `nvidia-smi`, `sensors`). Prints a line like “Monitor: nvidia-smi (GPU), sensors (temp); other blocks always shown” or “Monitor: (GPU/temp: install nvidia-smi or lm-sensors for more)”. **Sudo** is only required when installing to /opt.
   3. **Asks where to install** (unless non-interactive or an argument is passed):
      - **Choice 1 (default) or arg `1`/`--system`:** **`INSTALL_DIR=/opt/llamacpp-droid`** (system-wide). Requires sudo. Copies repo to /opt, installs icon, .desktop, writes **`/etc/llamacpp-droid/install-dir`**, installs **`ldroid-wrapper`** as `/usr/local/bin/ldroid`.
      - **Choice 2 or arg `2`/`--local`:** **`INSTALL_DIR=$ROOT`** (this folder, user-only). No sudo. Installs icon, .desktop, writes **`~/.config/llamacpp-droid/install-dir`**, installs **`ldroid-wrapper`** as `~/.local/bin/ldroid`.
@@ -49,8 +49,8 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
   1. Sets `ROOT` via `cd "$(dirname "$0")" && pwd` (when run as `/opt/llamacpp-droid/update.sh`, `ROOT` is `/opt/llamacpp-droid`).
   2. If `$ROOT/.git` exists: runs **`git pull --rebase`** (or plain `git pull`) to fetch latest code.
   3. `cd`s to the app folder and runs **`npm install`** (or **`sudo npm install`** when `$ROOT` is under `/opt`) to refresh dependencies.
-  4. **If `$ROOT` is under /opt:** writes .desktop, **`/etc/llamacpp-droid/install-dir`** with `$ROOT`, and **ldroid-wrapper** to `/usr/local/bin/ldroid`; **update-desktop-database**.
-  5. **Else** (running from a clone): writes .desktop, **`~/.config/llamacpp-droid/install-dir`** with `$ROOT`, and **ldroid-wrapper** (or symlink) to `~/.local/bin/ldroid`. So running **update** from a moved folder updates the remembered path.
+  4. **If `$ROOT` is under /opt:** installs **app icon** (32×32, 48×48, 64×64, 256×256) into `/usr/share/icons/hicolor`, runs **gtk-update-icon-cache**, writes .desktop, **`/etc/llamacpp-droid/install-dir`**, and **ldroid-wrapper** to `/usr/local/bin/ldroid`; **update-desktop-database**. So the application view shows the correct icon after every update.
+  5. **Else** (running from a clone / user install): installs **app icon** into `~/.local/share/icons/hicolor` (when `icon.png` exists), runs **gtk-update-icon-cache**, always writes .desktop and **update-desktop-database**, then **`~/.config/llamacpp-droid/install-dir`** and **ldroid-wrapper** to `~/.local/bin/ldroid`. So the application view always shows the correct icon after every update.
   6. Prints a message suggesting `ldroid start` or `./start.sh` to launch.
 
 ### 2.4 `start.sh`
@@ -86,7 +86,7 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 
 - **Main process** (`main.js`): Node.js; has access to `require('electron')`, `child_process`, and the file system. Creates the window, registers IPC handlers, and runs all Docker/monitor/find commands.
 - **Preload** (`preload.js`): Runs in a context that can use both Node (e.g. `ipcRenderer`) and the page’s JavaScript. It does **not** run in the renderer’s world; it uses `contextBridge` to expose a small, safe API to the renderer so the renderer never touches `require` or raw IPC.
-- **Renderer** (`renderer.js` + `index.html`): Browser-like environment; no Node, no direct IPC. All external actions go through the APIs exposed by the preload (`window.logViewer`, `window.docker`, `window.findGguf`, `window.monitor`). UI state and persistence (localStorage) live in the renderer.
+- **Renderer** (`renderer.js` + `index.html`): Browser-like environment; no Node, no direct IPC. All external actions go through the APIs exposed by the preload (`window.logViewer`, `window.docker`, `window.findGguf`, `window.monitor`, `window.models`, `window.dialog`). UI state and persistence (localStorage) live in the renderer.
 
 ---
 
@@ -124,6 +124,11 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 - **`docker:status`** — Returns the result of `dockerInspect(containerName)` (running true/false).
 - **`docker:runPreset`** — Builds a config from the preset name (`heavy` or `light`) and options (containerName, volumeHost, heavy/light model paths, ctx, ngl, cache type). **`presetConfig()`** in main builds the full Docker config for that preset (default image, host, port 8080, memory, etc.; heavy uses heavy model path, 20k ctx, ngl 42, KV cache q4_0; light uses light model path, 4k ctx, ngl 99). Then does `docker rm -f <name>` and `docker run -d` with that config. Resolves like `docker:run`.
 - **`find-gguf`** — Spawns `sh -c 'find "$HOME" -name "*.gguf" 2>/dev/null'`, collects stdout line by line, returns `{ paths: [...] }` (array of absolute paths). Used by “Find models” in the container form.
+- **`monitor:capabilities`** — Runs `nvidia-smi` and `sensors` with 2s timeout each; returns `{ nvidiaSmi: boolean, sensors: boolean }` so the Monitor tab can show only supported blocks.
+- **`models:list-hf-files`** — Fetches `https://huggingface.co/api/models/{repo}/tree/main`, returns `{ files: [{ path, size }], error }` (only `.gguf` files).
+- **`models:download-hf-file`** — Streams file from `https://huggingface.co/{repo}/resolve/main/{path}` to `destDir`; sends **`models:hf-download-progress`** (loaded, total, percent; or done). Returns `{ ok, path, error }`.
+- **`models:ollama-pull`** — Spawns `ollama pull <modelName>`; sends stdout/stderr via **`models:ollama-pull-output`**; returns `{ ok, error }` when done.
+- **`dialog:show-open-directory`** — Opens native directory picker; returns `{ path, error }`.
 - **`monitor:nvidia-smi`** and **`monitor:top`** — Use **`runCommand(cmd, args, timeoutMs)`**: spawns the command, collects stdout/stderr, and resolves with `{ stdout, stderr, error }` after exit or after 8s timeout (SIGKILL). So `nvidia-smi` and `top -b -n 1` are run on demand when the renderer calls these handlers; the main process does not poll by itself.
 
 ### 4.5 App lifecycle
@@ -154,8 +159,18 @@ Preload uses **`contextBridge.exposeInMainWorld`** so the renderer only sees the
 - **`window.findGguf()`** — `invoke('find-gguf')`, returns `{ paths }`.
 
 - **`window.monitor`**
+  - **`getCapabilities()`** — `invoke('monitor:capabilities')`; returns `{ nvidiaSmi, sensors }` so the Monitor tab can show only supported blocks.
   - **`nvidiaSmi()`** — `invoke('monitor:nvidia-smi')`.
   - **`top()`** — `invoke('monitor:top')`.
+  - (Other monitor methods: memory, disk, containerStats, network, gpuQuery, health, metrics, sensors, logsTail.)
+
+- **`window.models`** — Hugging Face and Ollama (Models tab).
+  - **`listHfFiles(repo)`** — `invoke('models:list-hf-files', repo)`; returns `{ files, error }`.
+  - **`downloadHfFile(repo, filePath, destDir)`** — `invoke('models:download-hf-file', …)`; progress via **`onHfDownloadProgress(cb)`**.
+  - **`ollamaPull(modelName)`** — `invoke('models:ollama-pull', modelName)`; output via **`onOllamaPullOutput(cb)`**.
+
+- **`window.dialog`**
+  - **`showOpenDirectory()`** — `invoke('dialog:show-open-directory')`; returns `{ path, error }`.
 
 Links in the renderer that use `target="_blank"` are handled by the main process’s `setWindowOpenHandler`: http(s) URLs are opened with `shell.openExternal` (system browser); in-app window is denied.
 
@@ -168,7 +183,8 @@ Links in the renderer that use `target="_blank"` are handled by the main process
 - **Panels:**
   - **`#container-panels`** — Container panels are appended here by the renderer (one per container, cloned from the template).
   - **`#panel-swap`** — Swap tab: intro text, preset form (container name, volume host, heavy/light model paths, ctx, ngl, Heavy KV cache, context shift, cache reuse, cache RAM), buttons “Heavy …” and “Light …”, message div.
-  - **`#panel-monitor`** — Two `<pre>` blocks: `#monitorNvidiaSmi` and `#monitorTop` (filled by renderer with command output).
+  - **`#panel-monitor`** — Multiple monitor blocks (GPU nvidia-smi, Processes — top, GPU compact, containers, health, metrics, network, memory, disk, sensors, logs tail). Order: GPU nvidia-smi first, then Processes — top; GPU/sensors blocks are shown only when the system has `nvidia-smi` or `sensors` (runtime detection).
+  - **`#panel-models`** — **Models** tab: download GGUF from **Hugging Face** (repo input, list GGUF files, select file, save directory, download with progress) and **Ollama** (model name, pull with live output). Uses IPC **`models:list-hf-files`**, **`models:download-hf-file`** (progress via **`models:hf-download-progress`**), **`models:ollama-pull`** (output via **`models:ollama-pull-output`**), and **`dialog:show-open-directory`**.
   - **`#panel-logs`** — Container name input, “Start stream” / “Stop stream”, “Clear”, status line, `#logOutput` (pre) for log text.
 - **Template** `#container-panel-template`: one `<section>` with a form containing all container fields (tab name, container name, image, volume host, model path, Find models button, host, port, ctx-size, ngl, memory, restart, network, checkboxes, cache options, sleep idle, Create / Run / Stop / Delete / **Update** buttons). Each new container is a clone of this template with a unique panel id and event listeners attached in the renderer.
 - **Footer:** Developer link (Zerwiz), tagline. Links use `target="_blank"` and are opened in the system browser via the main process handler.
@@ -198,7 +214,7 @@ Links in the renderer that use `target="_blank"` are handled by the main process
 
 ### 7.4 Monitor tab
 
-The Monitor tab shows live output from system and container commands (only while the tab is active). Toolbar inputs: **Server URL** (for health/metrics, default `http://localhost:8080`), **Container** (for logs tail, default `llamacpp`), **Tail lines** (5–200).
+The Monitor tab shows live output from system and container commands (only while the tab is active). **Block order:** GPU (nvidia-smi) first, then **Processes — top**, then GPU compact, containers, health, metrics, network, memory, disk, sensors, logs tail. **System detection:** on opening the tab the app calls **`monitor:capabilities`** (main process runs `nvidia-smi` and `sensors` with short timeouts). Blocks that require **nvidia-smi** (GPU — nvidia-smi, GPU — compact) or **sensors** (Temperature — sensors) are **hidden** when the corresponding command is not available, so only supported monitor features are shown. Install script also detects and prints Monitor support (nvidia-smi, sensors) during install. Toolbar inputs: **Server URL** (for health/metrics, default `http://localhost:8080`), **Container** (for logs tail, default `llamacpp`), **Tail lines** (5–200).
 
 | Block | Command / source | Poll interval |
 |-------|------------------|----------------|
@@ -214,17 +230,22 @@ The Monitor tab shows live output from system and container commands (only while
 | **Logs tail** | `docker logs --tail N &lt;Container&gt;` / `podman logs --tail N &lt;Container&gt;` | 3 s |
 | **Processes — top** | `top -b -n 1` | 2 s |
 
-- **`startMonitor()`** — Clears any existing intervals, runs each update once, then sets intervals. Each updater checks `#panel-monitor.active` and reads toolbar inputs where needed (server URL, container name, tail lines).
+- **`startMonitor()`** — Async: calls **`window.monitor.getCapabilities()`** (IPC **`monitor:capabilities`**), then toggles **`.monitor-unsupported`** on blocks with `data-monitor-requires="nvidiaSmi"` or `"sensors"` so only supported blocks are visible. Clears any existing intervals, runs each update once (nvidia/gpu/sensors only if supported), then sets intervals. Each updater checks `#panel-monitor.active` and reads toolbar inputs where needed (server URL, container name, tail lines).
 - **`stopMonitor()`** — Clears all intervals so no commands run when the user leaves the tab.
-- **`showPanel(tabId)`** — If `tabId === 'monitor'`, calls `startMonitor()`; otherwise calls `stopMonitor()`.
+- **`showPanel(tabId)`** — If `tabId === 'monitor'`, calls `startMonitor()`; otherwise calls `stopMonitor()`. Supports `tabId === 'models'` for the Models panel.
 
-### 7.5 Container tabs: add, remove, form actions
+### 7.5 Models tab (Hugging Face + Ollama)
+
+- **Hugging Face:** User enters repo (e.g. `lmstudio-community/DeepSeek-R1-GGUF`), clicks “List GGUF files”; renderer calls **`window.models.listHfFiles(repo)`** (IPC **`models:list-hf-files`**). Main process fetches `https://huggingface.co/api/models/{repo}/tree/main`, parses JSON (array or `{ tree }`), filters `.gguf` files, returns `{ files, error }`. User selects a file, sets “Save to directory” (or Browse → **`dialog:show-open-directory`**), clicks “Download selected”; renderer calls **`window.models.downloadHfFile(repo, filePath, destDir)`** (IPC **`models:download-hf-file`**). Main process streams from `https://huggingface.co/{repo}/resolve/main/{path}` to disk and sends **`models:hf-download-progress`** (loaded, total, percent). On completion, renderer shows “Saved: &lt;path&gt;”.
+- **Ollama:** User enters model name (e.g. `qwen2.5-coder:7b`), clicks “Pull”; renderer calls **`window.models.ollamaPull(name)`** (IPC **`models:ollama-pull`**). Main process spawns `ollama pull <name>` and forwards stdout/stderr via **`models:ollama-pull-output`**. Renderer appends to `#ollamaOutput` and scrolls. Requires Ollama installed; pulled models are for `ollama run`, not for llama.cpp containers.
+
+### 7.6 Container tabs: add, remove, form actions
 
 - **`addContainer(defaults)`** — Clones the template, assigns a new panel id and container id, fills all form fields from `defaults`, creates a tab button. Binds: tab name input → update tab label; “Find models” → `findGguf()`, shows list of paths, on click sets model path (and container path from volume host); form submit → `getConfig()` → `docker.run(config)` → message and status refresh; “Create container” → `docker.create(config)`; “Stop” → `docker.stop(name)`; “Delete” → `removeContainer(id)`. Registers **debounced** `saveSettings` (400 ms) on form input/change. Appends tab and panel, pushes entry to `containers`, refreshes status, shows the new panel, saves settings.
 - **`removeContainer(id)`** — Removes the entry from `containers`, removes its tab and panel from the DOM, saves. If the user was on that tab, switches to another container or to Logs.
 - **`removeAllContainers()`** — Removes every container tab/panel and clears the `containers` array (used when loading a profile that has a different set of containers).
 
-### 7.6 Profiles (load / save / delete)
+### 7.7 Profiles (load / save / delete)
 
 - **`loadProfilesList()`** — Reads `PROFILES_KEY` from localStorage, parses JSON, returns `parsed.list` or `[]`.
 - **`saveProfilesList(list)`** — Writes `{ list }` to `PROFILES_KEY`.
@@ -235,7 +256,7 @@ The Monitor tab shows live output from system and container commands (only while
 - **Save current as…**: `prompt()` for name, then pushes `{ id (UUID or timestamp), name, data: getCurrentSettings() }` to the list, saves list, refreshes dropdown.
 - **Delete**: Removes the selected profile from the list, saves, refreshes dropdown.
 
-### 7.7 Logs tab
+### 7.8 Logs tab
 
 - **`streaming`** — Boolean: whether the log stream is currently running.
 - **Start stream** click: gets container name from input, calls `logViewer.startStream(name)`, sets `streaming = true`, updates button to “Stop stream”, sets status.
@@ -244,20 +265,20 @@ The Monitor tab shows live output from system and container commands (only while
 - **`logViewer.onData(appendLog)`** — Appends each chunk to `#logOutput` and auto-scrolls if `streaming`.
 - **`logViewer.onError`** / **`onClosed`** — Update status and reset button/streaming state.
 
-### 7.8 Swap tab
+### 7.9 Swap tab
 
 - **`getSwapOpts()`** — Reads container name, volume host, heavy/light model paths, ctx, ngl, Heavy KV cache, context shift, cache reuse, cache RAM from the Swap form.
 - **Heavy button** click: `docker.runPreset({ preset: 'heavy', ...getSwapOpts() })`, then shows success or error.
 - **Light button** click: same with `preset: 'light'`. Both presets use the same optional context shift, cache reuse, and cache RAM when set.
 
-### 7.9 llama.cpp server swap/context options (coverage)
+### 7.10 llama.cpp server swap/context options (coverage)
 
 The app supports the swap- and context-related options from the [llama.cpp HTTP server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md):
 
 - **Container form:** `--context-shift`, `--cache-prompt` / `--no-cache-prompt`, `--cache-reuse`, `--cache-type-k`, `--cache-type-v`, `-cram` (cache RAM), `--ctx-checkpoints`, `--kv-unified` / `--no-kv-unified`, `--sleep-idle-seconds`. KV cache types: f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1.
 - **Swap presets:** Heavy and Light pass model path, ctx-size, ngl; Heavy also passes KV cache type (K and V). Both presets can use the shared options: context shift, cache reuse, cache RAM. For full control (e.g. different cache types per container, ctx-checkpoints), use the container form and Run/Create there.
 
-### 7.10 Init (on load)
+### 7.11 Init (on load)
 
 - **`saved = loadSettings()`**. If saved data exists and has at least one container: for each saved container calls `addContainer(mergeWithDefaults(c, i))`, restores log container name and swap fields, binds swap inputs to `saveSettings`, shows first container or Logs. Otherwise: adds two default containers with `getDefaultConfig(0)` and `getDefaultConfig(1)`, shows container 1, binds swap save.
 - **`refreshProfileDropdown()`** so the profile list is up to date.
@@ -313,7 +334,7 @@ So when you click **Stop container**:
 | `ldroid-wrapper`  | Script installed to PATH by install/update; reads install path from `/etc/llamacpp-droid/install-dir` or `~/.config/llamacpp-droid/install-dir`, exec’s real `ldroid`; if path missing, tries to find app and update user config. |
 | `banner.txt`      | ASCII banner (LLAMA + DROID + tagline); used by all root scripts and ldroid help. |
 | `install.sh`      | Prompts for install location: /opt (system, sudo) or this folder (user-only); writes install-dir, installs ldroid-wrapper to PATH. Progress %. |
-| `update.sh`       | Git pull (if repo), npm install, refresh .desktop and ldroid; progress %. |
+| `update.sh`       | Git pull (if repo), npm install, install/refresh app icon and .desktop (so application view shows icon), ldroid; progress %. |
 | `uninstall.sh`    | Remove /opt install, desktop entry, ldroid; confirm prompt unless -y/--yes; progress %. |
 | `start.sh`        | nohup npm start in app dir, disown; shows banner. |
 | `stop.sh`         | pkill Electron by app path (and fallbacks); shows banner. |

@@ -52,6 +52,20 @@ else
   DOCKER_STATUS="not found (install Docker or Podman for container features)"
 fi
 
+# Monitor tab support (app shows these when available)
+HAS_NVIDIA_SMI=false
+HAS_SENSORS=false
+command -v nvidia-smi >/dev/null 2>&1 && HAS_NVIDIA_SMI=true
+command -v sensors >/dev/null 2>&1 && HAS_SENSORS=true
+MONITOR_SUPPORT="Monitor:"
+$HAS_NVIDIA_SMI && MONITOR_SUPPORT="$MONITOR_SUPPORT nvidia-smi (GPU)"
+$HAS_SENSORS && MONITOR_SUPPORT="$MONITOR_SUPPORT sensors (temp)"
+if ! $HAS_NVIDIA_SMI && ! $HAS_SENSORS; then
+  MONITOR_SUPPORT="$MONITOR_SUPPORT (GPU/temp: install nvidia-smi or lm-sensors for more)"
+else
+  MONITOR_SUPPORT="$MONITOR_SUPPORT; other blocks (top, memory, network, etc.) always shown"
+fi
+
 # Desktop entry path: standard on Linux (used only for system-wide install)
 APPS="/usr/share/applications"
 if [ "$OS_TYPE" != "Linux" ]; then
@@ -64,6 +78,7 @@ echo "  Arch:    $ARCH"
 echo "  Node:    $NODE_VERSION ($NODE_PATH)"
 echo "  npm:     $NPM_VERSION ($NPM_PATH)"
 echo "  Docker:  $DOCKER_STATUS"
+echo "  $MONITOR_SUPPORT"
 echo ""
 
 # Ask where to install (or use first arg: 1 = /opt, 2 or --local = this folder)
@@ -132,7 +147,7 @@ if [ "$INSTALL_TO_OPT" = true ]; then
   if [ ! -f "$ICON_SRC" ]; then
     echo "Warning: $ICON_SRC not found; app menu may show generic icon."
   fi
-  for SIZE in 48x48 256x256; do
+  for SIZE in 32x32 48x48 64x64 256x256; do
     sudo mkdir -p "/usr/share/icons/hicolor/$SIZE/apps"
     if [ -f "$ICON_SRC" ]; then
       sudo cp "$ICON_SRC" "/usr/share/icons/hicolor/$SIZE/apps/${ICON_NAME}.png"
@@ -144,13 +159,14 @@ if [ "$INSTALL_TO_OPT" = true ]; then
   fi
   progress 85 "Registering app menu entry..."
   DESKTOP="$APPS/llamacpp-droid.desktop"
+  ICON_PATH="/usr/share/icons/hicolor/256x256/apps/${ICON_NAME}.png"
   sudo tee "$DESKTOP" >/dev/null << EOF
 [Desktop Entry]
 Type=Application
 Name=llamacpp droid
 Comment=Run llama.cpp Docker containers and stream logs
 Exec=$INSTALL_DIR/start.sh
-Icon=$ICON_NAME
+Icon=$ICON_PATH
 Categories=Development;Utility;
 Terminal=false
 EOF
@@ -179,7 +195,7 @@ else
   if [ ! -f "$ICON_SRC" ]; then
     echo "Warning: $ICON_SRC not found; app menu may show generic icon."
   fi
-  for SIZE in 48x48 256x256; do
+  for SIZE in 32x32 48x48 64x64 256x256; do
     mkdir -p "$ICONS_DIR/$SIZE/apps"
     if [ -f "$ICON_SRC" ]; then
       cp "$ICON_SRC" "$ICONS_DIR/$SIZE/apps/${ICON_NAME}.png"
@@ -193,13 +209,15 @@ else
   mkdir -p "$APPS_USER"
   DESKTOP="$APPS_USER/llamacpp-droid.desktop"
   EXEC_QUOTED="\"$INSTALL_DIR/start.sh\""
+  # Point Icon directly at app icon so launcher shows it (avoids theme cache issues)
+  ICON_PATH_APP="$INSTALL_DIR/systems/llamacpp-log-viewer/icon.png"
   cat > "$DESKTOP" << EOF
 [Desktop Entry]
 Type=Application
 Name=llamacpp droid
 Comment=Run llama.cpp Docker containers and stream logs
 Exec=$EXEC_QUOTED
-Icon=$ICON_NAME
+Icon=$ICON_PATH_APP
 Categories=Development;Utility;
 Terminal=false
 EOF

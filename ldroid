@@ -1,58 +1,37 @@
 #!/usr/bin/env bash
-# ldroid — CLI for llamacpp droid. Folder-agnostic; run from repo root or via PATH.
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-
-show_banner() { [ -f "$ROOT/banner.txt" ] && cat "$ROOT/banner.txt" && echo; }
-
-usage() {
-  show_banner
-  cat << 'EOF'
-ldroid — Run and manage llamacpp droid (Electron app for llama.cpp Docker containers)
-
-Usage:
-  ldroid install [1|2|--system|--local]
-                 Install app. At run time you can choose:
-                   1 or --system  /opt/llamacpp-droid (system-wide, sudo)
-                   2 or --local   This folder (user-only, no sudo)
-                 Or run without args to be prompted.
-  ldroid update     Pull latest code (if git) and refresh deps + launcher
-  ldroid start      Start the app (background)
-  ldroid stop       Stop the running app
-  ldroid app        Same as start
-  ldroid uninstall  Remove /opt install, desktop entry, and ldroid command (use -y to skip confirm)
-  ldroid help       Show this help
-
-Examples:
-  ldroid install && ldroid start
-  ldroid install 2
-  ldroid install --local
-  ldroid update
-  ldroid uninstall --yes
-EOF
-}
-
-case "${1:-help}" in
-  install)
-    exec "$ROOT/install.sh" "$2"
-    ;;
-  update)
-    exec "$ROOT/update.sh"
-    ;;
-  start|app)
-    exec "$ROOT/start.sh"
-    ;;
-  stop)
-    exec "$ROOT/stop.sh"
-    ;;
-  uninstall)
-    exec "$ROOT/uninstall.sh" "$2"
-    ;;
-  help|--help|-h)
-    usage
-    ;;
-  *)
-    echo "Unknown command: $1" >&2
-    usage >&2
-    exit 1
-    ;;
-esac
+# Launcher for ldroid: reads install path from config; if app was moved, tries to find it.
+INSTALL_DIR=""
+if [ -r /etc/llamacpp-droid/install-dir 2>/dev/null ]; then
+  INSTALL_DIR="$(cat /etc/llamacpp-droid/install-dir 2>/dev/null | head -1 | tr -d '\n\r')"
+fi
+if [ -z "$INSTALL_DIR" ] && [ -r "${XDG_CONFIG_HOME:-$HOME/.config}/llamacpp-droid/install-dir" 2>/dev/null ]; then
+  INSTALL_DIR="$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/llamacpp-droid/install-dir" 2>/dev/null | head -1 | tr -d '\n\r')"
+fi
+if [ -z "$INSTALL_DIR" ]; then
+  echo "llamacpp droid: install path not found. Run: ./install.sh or ldroid install first." >&2
+  exit 1
+fi
+if [ -x "$INSTALL_DIR/ldroid" ] && [ -f "$INSTALL_DIR/systems/llamacpp-log-viewer/package.json" ]; then
+  exec "$INSTALL_DIR/ldroid" "$@"
+fi
+# Install path missing (e.g. folder moved): try to find app
+FOUND=""
+for base in "$HOME" "$HOME/CodeP" "$HOME/Code" "/opt" "/usr/local"; do
+  [ ! -d "$base" ] && continue
+  for dir in "$base"/*/; do
+    if [ -x "${dir}ldroid" ] && [ -f "${dir}systems/llamacpp-log-viewer/package.json" ]; then
+      FOUND="${dir%/}"
+      break 2
+    fi
+  done
+done
+if [ -n "$FOUND" ]; then
+  CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/llamacpp-droid"
+  if mkdir -p "$CONFIG_DIR" 2>/dev/null && [ -w "$CONFIG_DIR" ]; then
+    printf '%s' "$FOUND" > "$CONFIG_DIR/install-dir"
+    echo "llamacpp droid: found at $FOUND and updated config." >&2
+  fi
+  exec "$FOUND/ldroid" "$@"
+fi
+echo "llamacpp droid: install path $INSTALL_DIR not found. Move the app back or run install again in the new location." >&2
+exit 1

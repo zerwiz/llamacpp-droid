@@ -12,14 +12,9 @@
     <div class="header-title">
       <img src="icon.png" alt="" class="logo" />
       <h1>llamacpp droid</h1>
-    </div>
-    <div class="header-profiles">
-      <label class="profile-label">Profile</label>
-      <select id="profileSelect" class="profile-select" title="Load a saved settings profile">
-        <option value="">— Load profile —</option>
-      </select>
-      <button type="button" class="btn btn-secondary btn-profile-save" id="btnProfileSave">Save current as…</button>
-      <button type="button" class="btn btn-secondary btn-profile-delete" id="btnProfileDelete" title="Delete selected profile">Delete</button>
+      <button type="button" class="btn btn-secondary btn-header-open-webui" id="btnOpenWebUi" title="Open llama.cpp server Web UI in browser (default http://localhost:8080)">Open Web UI</button>
+      <button type="button" class="btn btn-secondary btn-header-zed-setup" id="btnZedSetup" title="Open Zed IDE setup doc">Zed setup</button>
+      <span class="header-zed-hint" title="Zed: API key = ollama (no spaces). URL = http://localhost:8080/v1 with no trailing space. Invalid URI often = space in URL or key.">Zed: API key = <kbd>ollama</kbd></span>
     </div>
     <nav class="tabs" id="nav">
       <span id="container-tabs"></span>
@@ -28,6 +23,7 @@
       <button type="button" class="tab" data-tab="swap">Swap</button>
       <button type="button" class="tab" data-tab="monitor">Monitor</button>
       <button type="button" class="tab" data-tab="rag">RAG</button>
+      <button type="button" class="tab" data-tab="models">Models</button>
     </nav>
   </header>
 
@@ -135,11 +131,15 @@
           <label class="monitor-toolbar-label">Tail lines</label>
           <input type="number" id="monitorLogsTailLines" value="30" min="5" max="200" title="Number of last log lines" />
         </div>
-        <div class="monitor-block">
+        <div class="monitor-block" data-monitor-requires="nvidiaSmi">
           <h2 class="monitor-title">GPU — nvidia-smi</h2>
           <pre class="monitor-output" id="monitorNvidiaSmi">Waiting…</pre>
         </div>
         <div class="monitor-block">
+          <h2 class="monitor-title">Processes — top</h2>
+          <pre class="monitor-output" id="monitorTop">Waiting…</pre>
+        </div>
+        <div class="monitor-block" data-monitor-requires="nvidiaSmi">
           <h2 class="monitor-title">GPU — compact (name, memory, util, temp, power)</h2>
           <pre class="monitor-output" id="monitorGpuQuery">Waiting…</pre>
         </div>
@@ -167,7 +167,7 @@
           <h2 class="monitor-title">Disk — df</h2>
           <pre class="monitor-output" id="monitorDisk">Waiting…</pre>
         </div>
-        <div class="monitor-block">
+        <div class="monitor-block" data-monitor-requires="sensors">
           <h2 class="monitor-title">Temperature — sensors</h2>
           <pre class="monitor-output" id="monitorSensors">Waiting…</pre>
         </div>
@@ -175,9 +175,59 @@
           <h2 class="monitor-title">Logs tail (last N lines)</h2>
           <pre class="monitor-output" id="monitorLogsTailOutput">Waiting…</pre>
         </div>
-        <div class="monitor-block">
-          <h2 class="monitor-title">Processes — top</h2>
-          <pre class="monitor-output" id="monitorTop">Waiting…</pre>
+      </div>
+    </section>
+    <section id="panel-models" class="panel">
+      <div class="models-page">
+        <div class="models-intro">
+          <h2>Download models</h2>
+          <p>Download GGUF models from <strong>Hugging Face</strong> or pull models with <strong>Ollama</strong>. Use the same destination folder as your container&apos;s &quot;Host path (models)&quot; so containers can load the file.</p>
+        </div>
+        <div class="models-card card">
+          <h3>Hugging Face</h3>
+          <div class="form-row">
+            <label for="hfRepo">Repo (owner/name)</label>
+            <input type="text" id="hfRepo" placeholder="lmstudio-community/DeepSeek-R1-GGUF" spellcheck="false" />
+            <button type="button" class="btn btn-secondary" id="btnHfList">List GGUF files</button>
+          </div>
+          <div class="form-row models-hf-list-row">
+            <label>GGUF files</label>
+            <div class="models-hf-status" id="hfListStatus"></div>
+            <ul class="models-hf-files" id="hfFileList"></ul>
+          </div>
+          <div class="form-row two-cols">
+            <div>
+              <label for="hfDestDir">Save to directory</label>
+              <div class="input-with-btn">
+                <input type="text" id="hfDestDir" placeholder="/path/to/models" spellcheck="false" />
+                <button type="button" class="btn btn-secondary" id="btnHfBrowse">Browse</button>
+              </div>
+            </div>
+            <div class="models-download-actions">
+              <button type="button" class="btn btn-primary" id="btnHfDownload" disabled>Download selected</button>
+              <div class="models-download-progress hidden" id="hfDownloadProgress">
+                <progress id="hfProgressBar" value="0" max="100"></progress>
+                <span id="hfProgressText"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="models-card card">
+          <h3>Ollama</h3>
+          <p class="models-ollama-hint">Requires <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> installed. Pulled models are used by <code>ollama run &lt;name&gt;</code>; they are separate from llama.cpp containers.</p>
+          <div class="form-row two-cols">
+            <div>
+              <label for="ollamaModel">Model name</label>
+              <input type="text" id="ollamaModel" placeholder="qwen2.5-coder:7b" spellcheck="false" />
+            </div>
+            <div class="models-ollama-actions">
+              <button type="button" class="btn btn-primary" id="btnOllamaPull">Pull</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Output</label>
+            <pre class="models-ollama-output" id="ollamaOutput"></pre>
+          </div>
         </div>
       </div>
     </section>
@@ -229,6 +279,14 @@
             <button type="button" class="btn btn-secondary btn-open-webui">Open WebUI</button>
           </div>
         </div>
+        <div class="container-profile-row">
+          <label class="profile-label">Profile</label>
+          <select class="container-profile-select" title="Load a saved settings profile">
+            <option value="">— Load profile —</option>
+          </select>
+          <button type="button" class="btn btn-secondary container-profile-save">Save current as…</button>
+          <button type="button" class="btn btn-secondary container-profile-delete" title="Delete selected profile">Delete</button>
+        </div>
         <form class="runner-form">
           <div class="form-row two-cols">
             <div>
@@ -272,7 +330,7 @@
             </div>
             <div>
               <label>ctx-size</label>
-              <input type="number" name="ctxSize" value="12000" min="512" />
+              <input type="number" name="ctxSize" value="32768" min="512" max="262144" title="Max prompt+response tokens. Restart container to apply." />
             </div>
           </div>
           <div class="form-row three-cols">
@@ -408,8 +466,15 @@
             <button type="button" class="btn btn-secondary btn-create">Create container</button>
             <button type="submit" class="btn btn-primary">Run container</button>
             <button type="button" class="btn btn-secondary btn-stop">Stop container</button>
+            <button type="button" class="btn btn-secondary btn-restart-container" title="Stop then start with current settings (e.g. new ctx-size)">Restart container</button>
             <button type="button" class="btn btn-danger btn-delete">Delete container</button>
-            <button type="button" class="btn btn-secondary btn-container-update" title="Run app update (git pull + npm + launcher refresh)">Update</button>
+            <button type="button" class="btn btn-secondary btn-container-update" title="Run app update (git pull + npm + launcher refresh)">Update app</button>
+          </div>
+          <div class="container-zed-copy">
+            <span class="container-zed-copy-label">Zed (copy-paste):</span>
+            <span class="container-zed-copy-line">API URL: <code class="container-zed-url">http://localhost:8080/v1</code> <button type="button" class="btn btn-small btn-copy-zed-field" data-copy="url" title="Copy API URL">Copy</button></span>
+            <span class="container-zed-copy-line">API key: <code class="container-zed-key">ollama</code> <button type="button" class="btn btn-small btn-copy-zed-field" data-copy="key" title="Copy API key">Copy</button></span>
+            <span class="container-zed-copy-line">Model: <code class="container-zed-model">default</code> <small>(or check /v1/models)</small> <button type="button" class="btn btn-small btn-copy-zed-field" data-copy="model" title="Copy model">Copy</button></span>
           </div>
         </form>
         <div class="runner-message"></div>
@@ -421,7 +486,6 @@
     <span class="footer-runtime" id="footerRuntime" title="Container runtime (Docker or Podman)">Runtime: …</span>
     <button type="button" class="btn btn-footer btn-secondary" id="btnInstallLlamacpp" title="Open llama.cpp install and server options">Install llama.cpp options</button>
     <button type="button" class="btn btn-footer btn-secondary" id="btnUpdate" title="Run app update (git pull + npm + launcher refresh)">Update</button>
-    <button type="button" class="btn btn-footer btn-secondary" id="btnOpenWebUi" title="Open llama.cpp server Web UI in browser (default http://localhost:8080)">Open Web UI</button>
     <span class="footer-update-status" id="footerUpdateStatus" aria-live="polite"></span>
     <span class="footer-dev">Developer: <a href="https://whynotproductions.netlify.app/" target="_blank" rel="noopener noreferrer">Zerwiz</a></span>
     <span class="footer-tagline">Movement over ego. Collaboration over competition. Action over perfection.</span>

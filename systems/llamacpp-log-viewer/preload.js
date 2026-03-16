@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('docker', {
 contextBridge.exposeInMainWorld('findGguf', () => ipcRenderer.invoke('find-gguf'));
 
 contextBridge.exposeInMainWorld('monitor', {
+  getCapabilities: () => ipcRenderer.invoke('monitor:capabilities'),
   nvidiaSmi: () => ipcRenderer.invoke('monitor:nvidia-smi'),
   top: () => ipcRenderer.invoke('monitor:top'),
   memory: () => ipcRenderer.invoke('monitor:memory'),
@@ -49,8 +50,29 @@ contextBridge.exposeInMainWorld('app', {
   openUrl: (url) => ipcRenderer.invoke('app:open-url', url),
   runUpdate: () => ipcRenderer.invoke('app:run-update'),
   openRagDoc: () => ipcRenderer.invoke('app:open-rag-doc'),
+  openZedDoc: () => ipcRenderer.invoke('app:open-zed-doc'),
 });
 
 contextBridge.exposeInMainWorld('rag', {
   query: (serverUrl, query, context) => ipcRenderer.invoke('rag:query', { serverUrl, query, context }),
+});
+
+contextBridge.exposeInMainWorld('models', {
+  listHfFiles: (repo) => ipcRenderer.invoke('models:list-hf-files', repo),
+  downloadHfFile: (repo, filePath, destDir) => ipcRenderer.invoke('models:download-hf-file', repo, filePath, destDir),
+  onHfDownloadProgress: (cb) => {
+    const handler = (_, p) => cb(p);
+    ipcRenderer.on('models:hf-download-progress', handler);
+    return () => ipcRenderer.removeListener('models:hf-download-progress', handler);
+  },
+  ollamaPull: (modelName) => ipcRenderer.invoke('models:ollama-pull', modelName),
+  onOllamaPullOutput: (cb) => {
+    const handler = (_, chunk) => cb(chunk);
+    ipcRenderer.on('models:ollama-pull-output', handler);
+    return () => ipcRenderer.removeListener('models:ollama-pull-output', handler);
+  },
+});
+
+contextBridge.exposeInMainWorld('dialog', {
+  showOpenDirectory: () => ipcRenderer.invoke('dialog:show-open-directory'),
 });

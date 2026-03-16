@@ -27,7 +27,8 @@ Zed supports **OpenAI API Compatible** providers. Point it at your local llama.c
    - **API URL:** `http://localhost:8080/v1`  
      (Replace `8080` with your container **Port** if different.)
    - **Model:** Use the model ID your server reports (e.g. from the server’s `/v1/models` or Web UI). For a single-model server, it is often the model path or a short id like `default` / `llama`.
-4. Save. No API key is needed for a local server.
+   - **API key:** Zed may require a value. For a local llama.cpp server, use any placeholder (e.g. `ollama`, `llama`, or `local`). The server ignores it; no real key is needed.
+4. Save.
 
 ### Option B: Edit Zed `settings.json`
 
@@ -42,6 +43,7 @@ Example for a server on **port 8080**:
     "openai_compatible": {
       "llamacpp droid": {
         "api_url": "http://localhost:8080/v1",
+        "api_key": "ollama",
         "available_models": [
           {
             "name": "default",
@@ -67,7 +69,7 @@ Example for a server on **port 8080**:
 - **`max_tokens`**: Match your model/context (e.g. 8192, 16384, 32768).
 - **Port:** If your container uses another port (e.g. 8081), use `http://localhost:8081/v1`.
 
-No API key is required for a local llama.cpp server; you can omit any `*_API_KEY` for this provider.
+If Zed asks for an API key, use a placeholder such as `ollama`, `llama`, or `local` — the local server does not validate it. In `settings.json` you can set `"api_key": "ollama"` in the provider if your Zed version requires it.
 
 ---
 
@@ -87,6 +89,8 @@ No API key is required for a local llama.cpp server; you can omit any `*_API_KEY
 | Wrong URL | In Zed, `api_url` must end with **`/v1`** (e.g. `http://localhost:8080/v1`). Host/port must match the container (Host `0.0.0.0` → use `localhost` in Zed). |
 | Model not found | Use the model id the server actually returns (e.g. from the Web UI or `GET http://localhost:8080/v1/models`). For a single-model server, `"default"` or the path/id shown there is usually correct. |
 | Different port | If you run multiple containers on different ports (e.g. 8080, 8081), add a separate `openai_compatible` entry (or provider) in Zed for each, with the matching `api_url` and model. |
+| **Missing Llama.cpp API key** | Zed may require an API key field. For local llama.cpp, enter a **placeholder** (e.g. `ollama`, `llama`, or `local`). The server does not use it. In settings UI, fill the API key with `ollama`; in JSON, add `"api_key": "ollama"` to the provider if needed. |
+| **Invalid URI character** | Usually caused by a **space, newline, or special character** in the API URL or API key. Use exactly `http://localhost:8080/v1` with **no trailing space**. API key: type `ollama` with no extra characters. If you use a provider name with spaces (e.g. `llamacpp droid`), try one without spaces (e.g. `llamacpp-droid`) in Zed settings or `settings.json`. |
 
 ---
 

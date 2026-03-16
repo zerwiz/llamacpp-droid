@@ -25,7 +25,7 @@ function getConfig(form, defaultName = 'llamacpp', defaultPort = 8080) {
     modelPath: get('modelPath') || '',
     host: get('host') || '0.0.0.0',
     port: parseInt(get('port') || String(defaultPort), 10),
-    ctxSize: parseInt(get('ctxSize') || '12000', 10),
+    ctxSize: parseInt(get('ctxSize') || '32768', 10),
     ngl: parseInt(get('ngl') || '99', 10),
     memory: get('memory') || '24g',
     memorySwap: get('memorySwap') || '32g',
@@ -60,7 +60,7 @@ function getDefaultConfig(index) {
     modelPath: '/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q3_K_S.gguf',
     host: '0.0.0.0',
     port: basePort,
-    ctxSize: 12000,
+    ctxSize: 32768,
     ngl: 99,
     memory: '24g',
     memorySwap: '32g',
@@ -95,7 +95,7 @@ function getContainerSettings(form, defaults) {
     modelPath: get('modelPath') || '',
     host: get('host') || defaults.host,
     port: parseInt(get('port') || String(defaults.port), 10),
-    ctxSize: parseInt(get('ctxSize') || '12000', 10),
+    ctxSize: parseInt(get('ctxSize') || '32768', 10),
     ngl: parseInt(get('ngl') || '99', 10),
     memory: get('memory') || defaults.memory,
     memorySwap: get('memorySwap') || defaults.memorySwap,
@@ -192,7 +192,7 @@ let monitorIntervalMetrics = null;
 let monitorIntervalSensors = null;
 let monitorIntervalLogsTail = null;
 
-function startMonitor() {
+async function startMonitor() {
   stopMonitor();
   const nvidiaEl = document.getElementById('monitorNvidiaSmi');
   const topEl = document.getElementById('monitorTop');
@@ -205,6 +205,16 @@ function startMonitor() {
   const metricsEl = document.getElementById('monitorMetrics');
   const sensorsEl = document.getElementById('monitorSensors');
   const logsTailEl = document.getElementById('monitorLogsTailOutput');
+
+  // Show only monitor blocks supported on this system
+  let caps = { nvidiaSmi: false, sensors: false };
+  try {
+    caps = await window.monitor.getCapabilities();
+  } catch (_) {}
+  document.querySelectorAll('.monitor-block[data-monitor-requires]').forEach((block) => {
+    const req = block.getAttribute('data-monitor-requires');
+    block.classList.toggle('monitor-unsupported', !caps[req]);
+  });
 
   function isMonitorActive() {
     return document.getElementById('panel-monitor').classList.contains('active');
@@ -301,27 +311,31 @@ function startMonitor() {
     });
   }
 
-  updateNvidia();
+  if (caps.nvidiaSmi) {
+    updateNvidia();
+    updateGpuQuery();
+    monitorIntervalNvidia = setInterval(updateNvidia, 1000);
+    monitorIntervalGpuQuery = setInterval(updateGpuQuery, 2000);
+  }
+  if (caps.sensors) {
+    updateSensors();
+    monitorIntervalSensors = setInterval(updateSensors, 5000);
+  }
   updateTop();
   updateMemory();
   updateDisk();
   updateContainerStats();
   updateNetwork();
-  updateGpuQuery();
   updateHealth();
   updateMetrics();
-  updateSensors();
   updateLogsTail();
-  monitorIntervalNvidia = setInterval(updateNvidia, 1000);
   monitorIntervalTop = setInterval(updateTop, 2000);
   monitorIntervalMemory = setInterval(updateMemory, 3000);
   monitorIntervalDisk = setInterval(updateDisk, 5000);
   monitorIntervalContainerStats = setInterval(updateContainerStats, 2000);
   monitorIntervalNetwork = setInterval(updateNetwork, 4000);
-  monitorIntervalGpuQuery = setInterval(updateGpuQuery, 2000);
   monitorIntervalHealth = setInterval(updateHealth, 3000);
   monitorIntervalMetrics = setInterval(updateMetrics, 5000);
-  monitorIntervalSensors = setInterval(updateSensors, 5000);
   monitorIntervalLogsTail = setInterval(updateLogsTail, 3000);
 }
 
@@ -351,8 +365,8 @@ function stopMonitor() {
 }
 
 function showPanel(tabId) {
-  const panelId = tabId === 'logs' ? 'panel-logs' : tabId === 'monitor' ? 'panel-monitor' : tabId === 'swap' ? 'panel-swap' : tabId === 'rag' ? 'panel-rag' : 'panel-' + tabId;
-  document.querySelectorAll('#container-panels .panel, #panel-logs, #panel-swap, #panel-monitor, #panel-rag').forEach((p) => {
+  const panelId = tabId === 'logs' ? 'panel-logs' : tabId === 'monitor' ? 'panel-monitor' : tabId === 'swap' ? 'panel-swap' : tabId === 'rag' ? 'panel-rag' : tabId === 'models' ? 'panel-models' : 'panel-' + tabId;
+  document.querySelectorAll('#container-panels .panel, #panel-logs, #panel-swap, #panel-monitor, #panel-rag, #panel-models').forEach((p) => {
     p.classList.toggle('active', p.id === panelId);
   });
   document.querySelectorAll('#nav .tab[data-tab]').forEach((b) => {
@@ -376,6 +390,7 @@ function addContainer(defaults) {
   const btnCreate = card.querySelector('.btn-create');
   const btnStop = card.querySelector('.btn-stop');
   const btnDelete = card.querySelector('.btn-delete');
+  const btnRestartContainer = card.querySelector('.btn-restart-container');
   const btnContainerUpdate = card.querySelector('.btn-container-update');
 
   section.id = 'panel-container-' + id;
@@ -565,6 +580,35 @@ function addContainer(defaults) {
     btnStop.disabled = false;
   });
 
+  if (btnRestartContainer) {
+    btnRestartContainer.addEventListener('click', async () => {
+      const name = form.querySelector('[name="containerName"]').value.trim() || defaults.containerName;
+      const config = getConfig(form, defaults.containerName, defaults.port);
+      btnRestartContainer.disabled = true;
+      setMessage('Stopping…');
+      try {
+        const stopResult = await window.docker.stop(name);
+        if (!stopResult.ok) {
+          setMessage(stopResult.error || 'Stop failed', 'error');
+          btnRestartContainer.disabled = false;
+          return;
+        }
+        setMessage('Starting with current settings…');
+        const runResult = await window.docker.run(config);
+        if (runResult.ok) {
+          setMessage('Container restarted. Server on http://' + config.host + ':' + config.port + ' (ctx-size ' + config.ctxSize + ')', 'success');
+          refreshStatus();
+          updateTabLabel();
+        } else {
+          setMessage(runResult.error || 'Run failed', 'error');
+        }
+      } catch (err) {
+        setMessage(err && err.message ? err.message : String(err), 'error');
+      }
+      btnRestartContainer.disabled = false;
+    });
+  }
+
   btnDelete.addEventListener('click', () => {
     removeContainer(id);
   });
@@ -587,6 +631,47 @@ function addContainer(defaults) {
       setTimeout(() => setMessage(''), 8000);
     });
   }
+
+  const zedUrlEl = card.querySelector('.container-zed-url');
+  function updateZedUrl() {
+    if (!zedUrlEl) return;
+    const host = (form.querySelector('[name="host"]') && form.querySelector('[name="host"]').value) ? form.querySelector('[name="host"]').value.trim() : (defaults.host || '0.0.0.0');
+    const port = (form.querySelector('[name="port"]') && form.querySelector('[name="port"]').value) ? form.querySelector('[name="port"]').value : (defaults.port || 8080);
+    const displayHost = host === '0.0.0.0' ? 'localhost' : host;
+    zedUrlEl.textContent = 'http://' + displayHost + ':' + port + '/v1';
+  }
+  updateZedUrl();
+  const hostInput = form.querySelector('[name="host"]');
+  const portInput = form.querySelector('[name="port"]');
+  if (hostInput) hostInput.addEventListener('input', updateZedUrl);
+  if (hostInput) hostInput.addEventListener('change', updateZedUrl);
+  if (portInput) portInput.addEventListener('input', updateZedUrl);
+  if (portInput) portInput.addEventListener('change', updateZedUrl);
+  card.querySelectorAll('.btn-copy-zed-field').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const which = btn.getAttribute('data-copy');
+      let text = '';
+      if (which === 'url') {
+        updateZedUrl();
+        text = zedUrlEl ? zedUrlEl.textContent.trim() : 'http://localhost:8080/v1';
+      } else if (which === 'key') {
+        const el = card.querySelector('.container-zed-key');
+        text = el ? el.textContent.trim() : 'ollama';
+      } else if (which === 'model') {
+        const el = card.querySelector('.container-zed-model');
+        text = el ? el.textContent.trim() : 'default';
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      } catch (_) {
+        btn.textContent = 'Copy failed';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+      }
+    });
+  });
 
   tabBtn.addEventListener('click', () => showPanel('container-' + id));
 
@@ -680,35 +765,38 @@ function loadProfile(data) {
 }
 
 function refreshProfileDropdown() {
-  const sel = document.getElementById('profileSelect');
-  if (!sel) return;
+  const selects = document.querySelectorAll('.container-profile-select');
+  if (!selects.length) return;
   const list = loadProfilesList();
-  const selected = sel.value;
-  sel.innerHTML = '';
-  const opt0 = document.createElement('option');
-  opt0.value = '';
-  opt0.textContent = '— Load profile —';
-  sel.appendChild(opt0);
-  list.forEach((p) => {
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.name || 'Unnamed';
-    sel.appendChild(opt);
+  const selected = selects[0].value;
+  selects.forEach((sel) => {
+    sel.innerHTML = '';
+    const opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = '— Load profile —';
+    sel.appendChild(opt0);
+    list.forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name || 'Unnamed';
+      sel.appendChild(opt);
+    });
+    if (selected && list.some((p) => p.id === selected)) sel.value = selected;
   });
-  if (selected && list.some((p) => p.id === selected)) sel.value = selected;
 }
 
 btnAddContainer.addEventListener('click', () => {
   const index = containers.length;
   const defaults = getDefaultConfig(index);
   addContainer(defaults);
+  refreshProfileDropdown();
 });
 
 nav.addEventListener('click', (e) => {
   const tab = e.target.closest('.tab[data-tab]');
   if (!tab) return;
   const tabId = tab.dataset.tab;
-  if (tabId === 'logs' || tabId === 'monitor' || tabId === 'swap' || tabId === 'rag' || (tabId && tabId.startsWith('container-'))) {
+  if (tabId === 'logs' || tabId === 'monitor' || tabId === 'swap' || tabId === 'rag' || tabId === 'models' || (tabId && tabId.startsWith('container-'))) {
     showPanel(tabId);
   }
 });
@@ -859,25 +947,36 @@ swapLightBtn.addEventListener('click', async () => {
   swapLightBtn.disabled = false;
 });
 
-// ---- Profile: Load / Save / Delete ----
-const profileSelect = document.getElementById('profileSelect');
-const btnProfileSave = document.getElementById('btnProfileSave');
-const btnProfileDelete = document.getElementById('btnProfileDelete');
+// ---- Profile: Load / Save / Delete (per container — same global profile list) ----
+const profileSaveModal = document.getElementById('profileSaveModal');
+const profileSaveModalInput = document.getElementById('profileSaveModalInput');
+const profileSaveModalOk = document.getElementById('profileSaveModalOk');
+const profileSaveModalCancel = document.getElementById('profileSaveModalCancel');
+const profileSaveModalBackdrop = document.getElementById('profileSaveModalBackdrop');
 
-profileSelect.addEventListener('change', () => {
-  const id = profileSelect.value;
+document.body.addEventListener('change', (e) => {
+  const sel = e.target.closest('.container-profile-select');
+  if (!sel) return;
+  const id = sel.value;
   if (!id) return;
   const list = loadProfilesList();
   const profile = list.find((p) => p.id === id);
   if (profile && profile.data) loadProfile(profile.data);
 });
 
-// Profile save: use in-app modal (prompt() is often blocked in Electron)
-const profileSaveModal = document.getElementById('profileSaveModal');
-const profileSaveModalInput = document.getElementById('profileSaveModalInput');
-const profileSaveModalOk = document.getElementById('profileSaveModalOk');
-const profileSaveModalCancel = document.getElementById('profileSaveModalCancel');
-const profileSaveModalBackdrop = document.getElementById('profileSaveModalBackdrop');
+document.body.addEventListener('click', (e) => {
+  if (e.target.closest('.container-profile-save')) openProfileSaveModal();
+  if (e.target.closest('.container-profile-delete')) {
+    const sel = document.querySelector('.container-profile-select');
+    const id = sel ? sel.value : '';
+    if (!id) return;
+    let list = loadProfilesList();
+    list = list.filter((p) => p.id !== id);
+    saveProfilesList(list);
+    refreshProfileDropdown();
+    document.querySelectorAll('.container-profile-select').forEach((s) => { s.value = ''; });
+  }
+});
 
 function openProfileSaveModal() {
   if (!profileSaveModal || !profileSaveModalInput) return;
@@ -900,10 +999,9 @@ function confirmProfileSave() {
   list.push({ id, name: trimmed, data });
   saveProfilesList(list);
   refreshProfileDropdown();
-  profileSelect.value = id;
+  document.querySelectorAll('.container-profile-select').forEach((s) => { s.value = id; });
 }
 
-btnProfileSave.addEventListener('click', openProfileSaveModal);
 if (profileSaveModalOk) profileSaveModalOk.addEventListener('click', confirmProfileSave);
 if (profileSaveModalCancel) profileSaveModalCancel.addEventListener('click', closeProfileSaveModal);
 if (profileSaveModalBackdrop) profileSaveModalBackdrop.addEventListener('click', closeProfileSaveModal);
@@ -913,16 +1011,6 @@ if (profileSaveModalInput) {
     if (e.key === 'Escape') closeProfileSaveModal();
   });
 }
-
-btnProfileDelete.addEventListener('click', () => {
-  const id = profileSelect.value;
-  if (!id) return;
-  let list = loadProfilesList();
-  list = list.filter((p) => p.id !== id);
-  saveProfilesList(list);
-  refreshProfileDropdown();
-  profileSelect.value = '';
-});
 
 // ---- Log container name: persist ----
 logContainerName.addEventListener('change', saveSettings);
@@ -991,6 +1079,13 @@ if (btnOpenWebUi && window.app && typeof window.app.openUrl === 'function') {
   });
 }
 
+const btnZedSetup = document.getElementById('btnZedSetup');
+if (btnZedSetup && window.app && typeof window.app.openZedDoc === 'function') {
+  btnZedSetup.addEventListener('click', () => {
+    window.app.openZedDoc();
+  });
+}
+
 // RAG panel — same server as Web UI
 const ragServerUrl = document.getElementById('ragServerUrl');
 const ragContext = document.getElementById('ragContext');
@@ -1028,6 +1123,137 @@ if (btnRagSend && window.rag && typeof window.rag.query === 'function') {
     }
     btnRagSend.disabled = false;
     if (ragStatus) setTimeout(() => { ragStatus.textContent = ''; }, 4000);
+  });
+}
+
+// ---- Models tab (Hugging Face + Ollama) ----
+const hfRepo = document.getElementById('hfRepo');
+const btnHfList = document.getElementById('btnHfList');
+const hfListStatus = document.getElementById('hfListStatus');
+const hfFileList = document.getElementById('hfFileList');
+const hfDestDir = document.getElementById('hfDestDir');
+const btnHfBrowse = document.getElementById('btnHfBrowse');
+const btnHfDownload = document.getElementById('btnHfDownload');
+const hfDownloadProgress = document.getElementById('hfDownloadProgress');
+const hfProgressBar = document.getElementById('hfProgressBar');
+const hfProgressText = document.getElementById('hfProgressText');
+const ollamaModel = document.getElementById('ollamaModel');
+const btnOllamaPull = document.getElementById('btnOllamaPull');
+const ollamaOutput = document.getElementById('ollamaOutput');
+
+let selectedHfFilePath = null;
+
+if (btnHfList && window.models && typeof window.models.listHfFiles === 'function') {
+  btnHfList.addEventListener('click', async () => {
+    const repo = (hfRepo && hfRepo.value) ? hfRepo.value.trim() : '';
+    if (!repo) {
+      if (hfListStatus) hfListStatus.textContent = 'Enter a repo (e.g. owner/repo).';
+      return;
+    }
+    if (hfListStatus) hfListStatus.textContent = 'Listing…';
+    if (hfFileList) hfFileList.innerHTML = '';
+    selectedHfFilePath = null;
+    if (btnHfDownload) btnHfDownload.disabled = true;
+    try {
+      const { files, error } = await window.models.listHfFiles(repo);
+      if (error) {
+        if (hfListStatus) hfListStatus.textContent = 'Error: ' + error;
+        return;
+      }
+      if (hfListStatus) hfListStatus.textContent = files.length ? `${files.length} GGUF file(s). Click one to select.` : 'No GGUF files in repo root.';
+      if (hfFileList && files.length) {
+        const fmt = (n) => n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' KB' : n + ' B';
+        files.forEach((f) => {
+          const li = document.createElement('li');
+          li.textContent = f.path + (f.size != null ? ' (' + fmt(f.size) + ')' : '');
+          li.dataset.path = f.path;
+          li.addEventListener('click', () => {
+            hfFileList.querySelectorAll('li').forEach((x) => x.classList.remove('selected'));
+            li.classList.add('selected');
+            selectedHfFilePath = f.path;
+            if (btnHfDownload) btnHfDownload.disabled = !hfDestDir || !hfDestDir.value.trim();
+          });
+          hfFileList.appendChild(li);
+        });
+      }
+    } catch (err) {
+      if (hfListStatus) hfListStatus.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+    }
+  });
+}
+
+if (btnHfBrowse && window.dialog && typeof window.dialog.showOpenDirectory === 'function') {
+  btnHfBrowse.addEventListener('click', async () => {
+    const { path: dir, error } = await window.dialog.showOpenDirectory();
+    if (!error && dir && hfDestDir) {
+      hfDestDir.value = dir;
+      if (btnHfDownload) btnHfDownload.disabled = !selectedHfFilePath;
+    }
+  });
+}
+if (hfDestDir && btnHfDownload) {
+  hfDestDir.addEventListener('input', () => {
+    btnHfDownload.disabled = !selectedHfFilePath || !hfDestDir.value.trim();
+  });
+}
+
+if (btnHfDownload && window.models && typeof window.models.downloadHfFile === 'function') {
+  btnHfDownload.addEventListener('click', async () => {
+    const repo = (hfRepo && hfRepo.value) ? hfRepo.value.trim() : '';
+    const dest = (hfDestDir && hfDestDir.value) ? hfDestDir.value.trim() : '';
+    if (!repo || !selectedHfFilePath || !dest) return;
+    btnHfDownload.disabled = true;
+    if (hfDownloadProgress) hfDownloadProgress.classList.remove('hidden');
+    if (hfProgressBar) hfProgressBar.value = 0;
+    if (hfProgressText) hfProgressText.textContent = 'Starting…';
+    const unsub = window.models.onHfDownloadProgress((p) => {
+      if (p.done) {
+        if (hfProgressText) hfProgressText.textContent = 'Done: ' + (p.path || '');
+        if (hfProgressBar) hfProgressBar.value = 100;
+      } else {
+        if (hfProgressBar && p.percent != null) hfProgressBar.value = p.percent;
+        if (hfProgressText) hfProgressText.textContent = p.total ? `${p.loaded} / ${p.total} (${p.percent}%)` : `${p.loaded} B`;
+      }
+    });
+    try {
+      const result = await window.models.downloadHfFile(repo, selectedHfFilePath, dest);
+      unsub();
+      if (result.ok) {
+        if (hfProgressText) hfProgressText.textContent = 'Saved: ' + result.path;
+      } else {
+        if (hfProgressText) hfProgressText.textContent = 'Error: ' + (result.error || 'Unknown');
+      }
+    } catch (err) {
+      unsub();
+      if (hfProgressText) hfProgressText.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+    }
+    btnHfDownload.disabled = false;
+    setTimeout(() => { if (hfDownloadProgress) hfDownloadProgress.classList.add('hidden'); }, 5000);
+  });
+}
+
+if (btnOllamaPull && ollamaOutput && window.models && typeof window.models.ollamaPull === 'function') {
+  btnOllamaPull.addEventListener('click', async () => {
+    const name = (ollamaModel && ollamaModel.value) ? ollamaModel.value.trim() : '';
+    if (!name) {
+      ollamaOutput.textContent = 'Enter a model name (e.g. qwen2.5-coder:7b).';
+      return;
+    }
+    ollamaOutput.textContent = 'Pulling ' + name + '…\n';
+    btnOllamaPull.disabled = true;
+    const unsub = window.models.onOllamaPullOutput((chunk) => {
+      ollamaOutput.textContent += chunk;
+      ollamaOutput.scrollTop = ollamaOutput.scrollHeight;
+    });
+    try {
+      const result = await window.models.ollamaPull(name);
+      unsub();
+      ollamaOutput.textContent += (result.ok ? '\nDone.' : '\nError: ' + (result.error || 'Unknown')) + '\n';
+    } catch (err) {
+      unsub();
+      ollamaOutput.textContent += '\nError: ' + (err && err.message ? err.message : String(err)) + '\n';
+    }
+    btnOllamaPull.disabled = false;
   });
 }
 

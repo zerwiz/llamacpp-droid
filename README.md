@@ -87,6 +87,8 @@ ldroid update
 ./update.sh
 ```
 
+**Icon not showing in the app menu?** Ensure `systems/llamacpp-log-viewer/icon.png` exists, then run **`ldroid update`** again (or `./update.sh`). The desktop entry uses a full path to the icon. If it still doesn’t appear, log out and back in so the launcher refreshes.
+
 To stop the app:
 
 ```bash

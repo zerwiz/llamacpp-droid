@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 const { spawn, spawnSync } = require('child_process');
 
 // Allow running on Linux without setuid chrome-sandbox
@@ -32,7 +33,7 @@ function buildDockerContainerArgs(config) {
     config.image || 'ghcr.io/ggml-org/llama.cpp:server-cuda',
     '--host', config.host || '0.0.0.0',
     '--port', String(config.port || 8080),
-    '--ctx-size', String(config.ctxSize || 12000),
+    '--ctx-size', String(config.ctxSize || 32768),
     '-ngl', String(config.ngl ?? 99),
   ];
   if (config.modelPath && String(config.modelPath).trim()) {
@@ -432,10 +433,150 @@ ipcMain.handle('monitor:metrics', (_, url) => {
   return runCommand('curl', ['-s', '--connect-timeout', '2', metricsUrl], 5000);
 });
 ipcMain.handle('monitor:sensors', () => runCommand('sensors', []));
+
+// Detect which monitor features are available on this system (used to show/hide Monitor tab blocks)
+ipcMain.handle('monitor:capabilities', async () => {
+  const [nvidiaResult, sensorsResult] = await Promise.all([
+    runCommand('nvidia-smi', [], 2000),
+    runCommand('sensors', [], 2000),
+  ]);
+  return {
+    nvidiaSmi: !nvidiaResult.error,
+    sensors: !sensorsResult.error,
+  };
+});
 ipcMain.handle('monitor:logs-tail', (_, containerName, tail) => {
   const rt = getContainerRuntime();
   const n = Math.min(Math.max(parseInt(tail, 10) || 30, 5), 200);
   return runCommand(rt, ['logs', '--tail', String(n), containerName || 'llamacpp']);
+});
+
+// ---- Models: Hugging Face and Ollama ----
+function listHfRepoTree(repo, revision = 'main') {
+  return new Promise((resolve, reject) => {
+    const url = `https://huggingface.co/api/models/${encodeURIComponent(repo)}/tree/${encodeURIComponent(revision)}`;
+    const req = https.get(url, { headers: { 'User-Agent': 'llamacpp-droid' } }, (res) => {
+      if (res.statusCode === 302 || res.statusCode === 301) {
+        const loc = res.headers.location;
+        if (loc) return listHfRepoTreeFromUrl(loc).then(resolve).catch(reject);
+      }
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const tree = Array.isArray(json) ? json : (json.tree || []);
+          const files = tree.filter((e) => e.type === 'file' && e.path && e.path.toLowerCase().endsWith('.gguf')).map((e) => ({ path: e.path, size: e.size || (e.lfs && e.lfs.size) || null }));
+          resolve({ files, error: null });
+        } catch (e) {
+          resolve({ files: [], error: e.message || 'Invalid response' });
+        }
+      });
+    });
+    req.on('error', (e) => resolve({ files: [], error: e.message }));
+    req.setTimeout(15000, () => { req.destroy(); resolve({ files: [], error: 'Timeout' }); });
+  });
+}
+
+function listHfRepoTreeFromUrl(fullUrl) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(fullUrl);
+    const opts = { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers: { 'User-Agent': 'llamacpp-droid' } };
+    const req = https.request(opts, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const tree = Array.isArray(json) ? json : (json.tree || []);
+          const files = tree.filter((e) => e.type === 'file' && e.path && e.path.toLowerCase().endsWith('.gguf')).map((e) => ({ path: e.path, size: e.size || (e.lfs && e.lfs.size) || null }));
+          resolve({ files, error: null });
+        } catch (e) {
+          resolve({ files: [], error: e.message || 'Invalid response' });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+ipcMain.handle('models:list-hf-files', async (_, repo) => {
+  const r = (repo || '').trim().replace(/^\/+|\/+$/g, '');
+  if (!r) return { files: [], error: 'Repo ID required (e.g. owner/repo)' };
+  return listHfRepoTree(r);
+});
+
+ipcMain.handle('models:download-hf-file', async (event, repo, filePath, destDir) => {
+  const r = (repo || '').trim().replace(/^\/+|\/+$/g, '');
+  const fp = (filePath || '').trim();
+  const dest = (destDir || '').trim();
+  if (!r || !fp || !dest) return { ok: false, error: 'Repo, file path and destination directory required' };
+  const webContents = event.sender;
+  const sendProgress = (p) => {
+    try { webContents.send('models:hf-download-progress', p); } catch (_) {}
+  };
+  const url = `https://huggingface.co/${r}/resolve/main/${fp.split('/').map((s) => encodeURIComponent(s)).join('/')}`;
+  try {
+    const res = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': 'llamacpp-droid' } });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const total = res.headers.get('content-length') ? parseInt(res.headers.get('content-length'), 10) : null;
+    const outPath = path.join(dest, path.basename(fp));
+    const file = fs.createWriteStream(outPath);
+    const reader = res.body.getReader();
+    let loaded = 0;
+    await new Promise((resolveStream, rejectStream) => {
+      const pump = () => {
+        reader.read().then(({ value, done }) => {
+          if (done) {
+            file.end();
+            sendProgress({ done: true, path: outPath });
+            file.on('finish', () => resolveStream());
+            return;
+          }
+          file.write(Buffer.from(value));
+          loaded += value.length;
+          sendProgress({ loaded, total, percent: total ? Math.round((loaded / total) * 100) : null });
+          pump();
+        }).catch(rejectStream);
+      };
+      file.on('error', rejectStream);
+      pump();
+    });
+    return { ok: true, path: outPath, error: null };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('models:ollama-pull', (event, modelName) => {
+  const name = (modelName || '').trim();
+  if (!name) return Promise.resolve({ ok: false, error: 'Model name required (e.g. qwen2.5-coder:7b)' });
+  return new Promise((resolve) => {
+    const child = spawn('ollama', ['pull', name], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const webContents = event.sender;
+    const send = (chunk) => {
+      try { webContents.send('models:ollama-pull-output', chunk); } catch (_) {}
+    };
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (c) => send(c));
+    child.stderr.on('data', (c) => send(c));
+    child.on('close', (code) => {
+      resolve({ ok: code === 0, error: code === 0 ? null : `Exit ${code}` });
+    });
+    child.on('error', (err) => resolve({ ok: false, error: err.message }));
+  });
+});
+
+ipcMain.handle('dialog:show-open-directory', async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win) return { path: null, error: 'No window' };
+  const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
+  if (result.canceled || !result.filePaths.length) return { path: null, error: null };
+  return { path: result.filePaths[0], error: null };
 });
 
 ipcMain.handle('app:open-url', (_, url) => {
@@ -453,6 +594,15 @@ ipcMain.handle('app:open-rag-doc', () => {
     return Promise.resolve({ ok: false, error: 'docs/RAG.md not found' });
   }
   return shell.openPath(ragDoc).then((err) => ({ ok: !err, error: err || null }));
+});
+
+ipcMain.handle('app:open-zed-doc', () => {
+  const appRoot = path.join(app.getAppPath(), '..', '..');
+  const zedDoc = path.join(appRoot, 'docs', 'ZED_IDE.md');
+  if (!fs.existsSync(zedDoc)) {
+    return Promise.resolve({ ok: false, error: 'docs/ZED_IDE.md not found' });
+  }
+  return shell.openPath(zedDoc).then((err) => ({ ok: !err, error: err || null }));
 });
 
 // RAG: send query (and optional context) to the same llama.cpp server as the Web UI
