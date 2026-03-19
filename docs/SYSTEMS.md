@@ -10,6 +10,11 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 - The app does **not** run a web server. The **main process** runs all external commands (Docker or Podman for containers, `nvidia-smi`, `top`, `find`); the **renderer** (front-end) only talks to the main process via IPC and never executes shell commands itself.
 - The project is **folder-agnostic**: the root directory can have any name. Every script sets `ROOT="$(cd "$(dirname "$0")" && pwd)"` so paths are resolved at runtime from the script’s location.
 
+### 1.1 Core vs optional features (plugins)
+
+- **Core features** are always present: containers (add, run, stop), logs streaming, swap presets, monitor, profiles, settings. The main purpose of the app is to **start containers and models**; these features do not require any extra install.
+- **Optional features (plugins)** are not installed by default. The app runs fully without them. The **RAG** tab (chat with the llama.cpp server) is always available; **document ingestion and retrieval** (LangChain.js + LanceDB) are provided by an optional plugin. Install from the app directory with `npm run install-rag`; see **docs/RAG.md** for details. The main process loads the RAG service only when the plugin packages are present, so the app does not depend on them at startup.
+
 ---
 
 ## 2. Root scripts — what each one does
@@ -129,6 +134,13 @@ This document explains **every part of the code**: root scripts, the ldroid CLI,
 - **`models:download-hf-file`** — Streams file from `https://huggingface.co/{repo}/resolve/main/{path}` to `destDir`; sends **`models:hf-download-progress`** (loaded, total, percent; or done). Returns `{ ok, path, error }`.
 - **`models:ollama-pull`** — Spawns `ollama pull <modelName>`; sends stdout/stderr via **`models:ollama-pull-output`**; returns `{ ok, error }` when done.
 - **`dialog:show-open-directory`** — Opens native directory picker; returns `{ path, error }`.
+- **`dialog:show-open-files`** — Opens native file picker with multi-select; optional filters (default: .txt, .md, .json). Returns `{ paths: string[], error }`. Used by RAG “Add documents…”.
+- **RAG (optional plugin)** — If the RAG plugin is installed (`npm run install-rag`), the following handlers are used. They dynamically require **`rag-service.js`** (LangChain.js + LanceDB); if the plugin is not installed, the app does not load it.
+  - **`rag:plugin-available`** — Returns `{ available: boolean, error? }` (true when RAG deps load).
+  - **`rag:init`** — Initializes RAG storage path and optional embedding API key. Called before ingest/retrieve.
+  - **`rag:ingest`** — Ingests documents: file paths, collection name, chunking; embeds (Hugging Face) and stores in LanceDB.
+  - **`rag:retrieve`** — Similarity search in a collection; returns `{ ok, chunks: [{ content, metadata }], error? }`.
+  - **`rag:query`** — Sends chat request to llama.cpp server (context + message history + new user message). Works with or without the plugin.
 - **`monitor:nvidia-smi`** and **`monitor:top`** — Use **`runCommand(cmd, args, timeoutMs)`**: spawns the command, collects stdout/stderr, and resolves with `{ stdout, stderr, error }` after exit or after 8s timeout (SIGKILL). So `nvidia-smi` and `top -b -n 1` are run on demand when the renderer calls these handlers; the main process does not poll by itself.
 
 ### 4.5 App lifecycle
@@ -339,9 +351,10 @@ So when you click **Stop container**:
 | `start.sh`        | nohup npm start in app dir, disown; shows banner. |
 | `stop.sh`         | pkill Electron by app path (and fallbacks); shows banner. |
 | **App**           | |
-| `main.js`         | Window, IPC (log stream, docker run/create/stop/status/preset, find-gguf, monitor, app:open-url, app:open-rag-doc, app:run-update, **rag:query**), Docker arg builder, presetConfig, runCommand; **rag:query** POSTs to llama.cpp server /v1/chat/completions (same server as Web UI). |
-| `preload.js`      | contextBridge: logViewer, docker, findGguf, monitor, app (openUrl, openRagDoc, runUpdate), **rag** (query). |
-| `index.html`      | Markup: header, profile UI, tabs (containers, Logs, Swap, Monitor, **RAG**), panel-swap, panel-monitor, panel-logs, **panel-rag** (server URL, context, query, Send, response), container template, footer (Runtime, Install llama.cpp options, Update, Open Web UI). |
+| `main.js`         | Window, IPC (log stream, docker, find-gguf, monitor, app, dialog, **rag:plugin-available**, **rag:init**, **rag:ingest**, **rag:retrieve**, **rag:query**), Docker arg builder, presetConfig, runCommand. **rag:query** POSTs to llama.cpp /v1/chat/completions; RAG ingest/retrieve use optional rag-service.js. |
+| `preload.js`      | contextBridge: logViewer, docker, findGguf, monitor, app, **rag** (pluginAvailable, init, ingest, retrieve, query), dialog (showOpenDirectory, showOpenFiles), models. |
+| `rag-service.js`  | **Optional plugin.** LangChain.js (loaders, splitter, HuggingFace embeddings) + LanceDB. initRag, ingestDocuments, retrieve, buildContextFromChunks. Loaded only when RAG deps are installed. |
+| `index.html`      | Markup: header, profile UI, tabs (containers, Logs, Swap, Monitor, **RAG (plugin)**), panel-rag (plugin-required card when not installed; Documents card: collection, Add documents; Use retrieval; context, query, Send), container template, footer. |
 | `renderer.js`     | Containers array, getConfig/getContainerSettings/getCurrentSettings, save/load/merge settings, add/remove container, profiles load/save/delete, monitor start/stop, showPanel, log stream UI, swap buttons, init from localStorage or defaults. |
 | `styles.css`      | Layout and styling for all panels and components. |
 | `icon.png`        | App icon (window and .desktop). |
@@ -352,6 +365,7 @@ So when you click **Stop container**:
 
 - **README.md** (root) — Quick start, prerequisites, high-level usage.
 - **docs/PLANNING.md** — Overview and scope.
+- **docs/CONTAINERS_AND_ZED.md** — Ways to start containers (UI, swap, manual), env/llama.cpp alignment, Zed using the same container URL.
 - **docs/GPU_AND_POWER.md** — GPU power and sleep-idle behaviour.
-- **docs/RAG.md** — RAG (Retrieval-Augmented Generation): framework evaluation and integration steps for adding RAG inside the app. The **RAG** footer button opens this doc.
+- **docs/RAG.md** — RAG as an **optional plugin**: install (`npm run install-rag`), embeddings (HUGGINGFACEHUB_API_KEY), Documents card (ingest .txt/.md/.json), Use retrieval, and chat. Also framework evaluation and integration design. The **RAG** footer button opens this doc.
 - **systems/llamacpp-log-viewer/README.md** — App-specific setup and run instructions.

@@ -12,7 +12,7 @@
     <div class="header-title">
       <img src="icon.png" alt="" class="logo" />
       <h1>llamacpp droid</h1>
-      <button type="button" class="btn btn-secondary btn-header-open-webui" id="btnOpenWebUi" title="Open llama.cpp server Web UI in browser (default http://localhost:8080)">Open Web UI</button>
+      <button type="button" class="btn btn-secondary btn-header-help" id="btnHelp" title="How to use and set up llamacpp droid">Help</button>
       <button type="button" class="btn btn-secondary btn-header-zed-setup" id="btnZedSetup" title="Open Zed IDE setup doc">Zed setup</button>
       <span class="header-zed-hint" title="Zed: API key = ollama (no spaces). URL = http://localhost:8080/v1 with no trailing space. Invalid URI often = space in URL or key.">Zed: API key = <kbd>ollama</kbd></span>
     </div>
@@ -22,8 +22,9 @@
       <button type="button" class="tab" data-tab="logs">Logs</button>
       <button type="button" class="tab" data-tab="swap">Swap</button>
       <button type="button" class="tab" data-tab="monitor">Monitor</button>
-      <button type="button" class="tab" data-tab="rag">RAG</button>
+      <button type="button" class="tab" data-tab="rag" title="Optional plugin: chat and document retrieval">RAG (plugin)</button>
       <button type="button" class="tab" data-tab="models">Models</button>
+      <button type="button" class="tab" data-tab="settings">Settings</button>
     </nav>
   </header>
 
@@ -39,12 +40,13 @@
             <li><strong>KV cache type</strong> — Use quantized cache (e.g. <code>q4_0</code>) to fit more context in VRAM (less precision, more room).</li>
             <li><strong>Model swap</strong> — Switch between a heavy model (e.g. 30B coder) and a light one (e.g. 7B chat) so the GPU isn’t stuck on one model 24/7. Tools like <strong>Llama-swap</strong> (a proxy between your editor and the API) can swap models on demand; here you use presets to do it manually.</li>
           </ul>
-          <p>On each <strong>container</strong> form you can enable <strong>Context shift</strong>, <strong>Cache prompt</strong>, <strong>Cache reuse</strong>, and set <strong>KV cache K/V</strong> and <strong>Cache RAM</strong>. Below: quick presets to swap the same container between a heavy and a light setup.</p>
+          <p>On each <strong>container</strong> form you can turn <strong>Context shift</strong>, <strong>Cache prompt</strong>, and <strong>Cache reuse</strong> on or off (checkboxes and values), and set <strong>KV cache K/V</strong> and <strong>Cache RAM</strong>. Below: quick presets to swap the same container between a heavy and a light setup.</p>
+          <p><strong>On/off:</strong> Nothing is enabled until you turn it on — check the box for context shift, set cache reuse &gt; 0 to enable it (0 = off), and click Heavy or Light to apply a preset.</p>
           <p class="swap-docs"><a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md" target="_blank" rel="noopener">Read online: llama.cpp server README</a> — flags and defaults for your server version.</p>
         </div>
         <div class="swap-presets card">
           <h3>Quick swap (presets)</h3>
-          <p class="swap-hint">Stops and removes the container, then starts it with the chosen preset. Same container name, different model/context. Preset values are configurable below; see the server README for supported options.</p>
+          <p class="swap-hint">Stops and removes the container, then starts it with the chosen preset. Same container name, different model/context. The checkboxes and values below are the <strong>on/off</strong> for each option (unchecked or 0 = off). Preset values are configurable; see the server README for supported options.</p>
           <div class="form-row two-cols">
             <div>
               <label>Container name</label>
@@ -86,13 +88,13 @@
           <div class="form-row three-cols">
             <div class="form-row-check">
               <label class="checkbox-label">
-                <input type="checkbox" id="swapContextShift" title="Use context shift for both presets" />
-                <span>Context shift (--context-shift)</span>
+                <input type="checkbox" id="swapContextShift" title="On/off: enable context shift for both presets (unchecked = off)" />
+                <span>Context shift — on/off (--context-shift)</span>
               </label>
             </div>
             <div>
-              <label>Cache reuse (--cache-reuse)</label>
-              <input type="number" id="swapCacheReuse" min="0" placeholder="0 = off" title="Min chunk size to reuse KV cache" />
+              <label>Cache reuse — on/off (--cache-reuse)</label>
+              <input type="number" id="swapCacheReuse" min="0" placeholder="0 = off" title="0 = off; set &gt; 0 to turn on (min chunk size to reuse KV cache)" />
             </div>
             <div>
               <label>Cache RAM MiB (-cram)</label>
@@ -233,23 +235,84 @@
     </section>
     <section id="panel-rag" class="panel">
       <div class="rag-page">
+        <div id="ragPluginRequired" class="rag-plugin-required card hidden" aria-hidden="true">
+          <h3>RAG plugin (optional)</h3>
+          <p>Document indexing and retrieval are provided by an <strong>optional plugin</strong>. The app works without it; chat below uses your llama.cpp server directly.</p>
+          <p>To enable document ingestion and vector search (LangChain.js + LanceDB), install the plugin from the app directory:</p>
+          <pre class="rag-install-cmd">npm run install-rag</pre>
+          <p class="rag-plugin-hint">Then restart the app and click <strong>Check again</strong>.</p>
+          <button type="button" class="btn btn-secondary" id="btnRagCheckPlugin">Check again</button>
+        </div>
+        <div id="ragContent" class="rag-content">
         <div class="rag-intro">
-          <h2>RAG — same server as Web UI</h2>
-          <p>RAG queries use the <strong>same llama.cpp server</strong> as the Web UI (Open Web UI button). Start your container, then use this panel to send document-backed queries to that server. When retrieval is added, context from your indexed documents will be injected automatically.</p>
+          <h2>RAG — chat and optional retrieval</h2>
+          <p>Use the <strong>llama.cpp server</strong> of the container you choose below. Chat works without the plugin; with the RAG plugin installed, you can ingest documents and have retrieval fill context automatically.</p>
           <p class="rag-server-row">
-            <label>Server URL (same as Web UI)</label>
-            <input type="text" id="ragServerUrl" value="http://localhost:8080" placeholder="http://localhost:8080" spellcheck="false" title="Base URL of your running llama.cpp server" />
+            <label>Use container</label>
+            <select id="ragContainerSelect" class="rag-container-select" aria-label="Choose which container’s server and system prompt to use for RAG">
+              <option value="">— None (use URL below) —</option>
+            </select>
+            <span class="rag-server-url-wrap">
+              <label>Server URL</label>
+              <input type="text" id="ragServerUrl" value="http://localhost:8080" placeholder="http://localhost:8080" spellcheck="false" title="Used when no container is selected" />
+            </span>
             <button type="button" class="btn btn-secondary btn-rag-open-webui" title="Open this URL in browser">Open Web UI</button>
           </p>
         </div>
+        <div class="rag-docs-card card">
+          <h3>Documents (plugin)</h3>
+          <p class="rag-docs-hint">Ingest .txt, .md, .json files into a collection. Set <code>HUGGINGFACEHUB_API_KEY</code> (or <code>HUGGINGFACE_API_KEY</code>) for embeddings.</p>
+          <p class="rag-docs-row">
+            <label for="ragCollectionName">Collection</label>
+            <input type="text" id="ragCollectionName" value="default" placeholder="default" spellcheck="false" />
+            <button type="button" class="btn btn-secondary" id="btnRagAddDocs">Add documents…</button>
+          </p>
+          <div class="rag-ingest-status" id="ragIngestStatus" aria-live="polite"></div>
+        </div>
         <div class="rag-query-card card">
-          <label for="ragContext">Additional context (optional — for now paste text; retrieval will fill this later)</label>
-          <textarea id="ragContext" rows="4" placeholder="Paste or leave empty. Future: retrieved document chunks will appear here." spellcheck="true"></textarea>
+          <p class="rag-retrieve-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="ragUseRetrieval" />
+              <span>Use retrieval for context (query collection when sending)</span>
+            </label>
+          </p>
+          <label for="ragContext">Additional context (optional — paste text or leave empty; retrieval fills from collection when enabled)</label>
+          <textarea id="ragContext" rows="4" placeholder="Paste extra context or leave empty. With “Use retrieval” on, relevant chunks are added automatically." spellcheck="true"></textarea>
           <label for="ragQuery">Your question</label>
           <textarea id="ragQuery" rows="3" placeholder="Ask something…" spellcheck="true"></textarea>
-          <button type="button" class="btn btn-primary" id="btnRagSend">Send (RAG)</button>
+          <button type="button" class="btn btn-primary" id="btnRagSend">Send</button>
           <div class="rag-status" id="ragStatus" aria-live="polite"></div>
           <pre class="rag-response" id="ragResponse"></pre>
+        </div>
+        </div>
+      </div>
+    </section>
+    <section id="panel-settings" class="panel">
+      <div class="settings-page">
+        <h2>Settings</h2>
+        <p class="settings-intro">App and install options. These affect the <strong>llamacpp droid</strong> application itself, not Docker containers.</p>
+        <div class="settings-actions card">
+          <button type="button" class="btn btn-secondary" id="btnInstallLlamacpp" title="Open llama.cpp install and server options">Install llama.cpp options</button>
+          <button type="button" class="btn btn-primary" id="btnUpdate" title="Run app update (git pull + npm + launcher refresh)">Update</button>
+          <span class="settings-update-status" id="footerUpdateStatus" aria-live="polite"></span>
+        </div>
+        <div class="settings-config card">
+          <h3>Config / env</h3>
+          <p class="settings-config-intro">Full settings and env that the app uses. Stored in the app (browser storage).</p>
+          <div class="settings-config-section">
+            <label>Full app config (JSON)</label>
+            <p class="settings-config-hint">All containers, swap presets, log container name — what gets saved and loaded.</p>
+            <button type="button" class="btn btn-small" id="btnRefreshConfig">Refresh</button>
+            <pre class="settings-config-pre" id="settingsConfigPreview" readonly>Click Refresh to show.</pre>
+          </div>
+          <div class="settings-config-section">
+            <label>Container config &amp; docker command</label>
+            <p class="settings-config-hint">Select a container to see its effective config (JSON) and the exact <code>docker run -d ...</code> command used.</p>
+            <select id="settingsContainerSelect" class="settings-config-select" aria-label="Select container">
+              <option value="">— Select container —</option>
+            </select>
+            <pre class="settings-config-pre settings-config-pre-tall" id="settingsContainerConfigPreview" readonly>Select a container above.</pre>
+          </div>
         </div>
       </div>
     </section>
@@ -330,13 +393,14 @@
             </div>
             <div>
               <label>ctx-size</label>
-              <input type="number" name="ctxSize" value="32768" min="512" max="262144" title="Max prompt+response tokens. Restart container to apply." />
+              <input type="number" name="ctxSize" value="32768" min="512" max="262144" title="Max prompt+response tokens. Lower (e.g. 8192) if logs show “out of memory” or “failed to allocate buffer for kv cache”. Restart to apply." />
+              <span class="form-hint form-hint-inline">Lower if OOM (e.g. 8192 for 16GB VRAM + 30B)</span>
             </div>
           </div>
           <div class="form-row three-cols">
             <div>
               <label>n_gpu_layers (-ngl)</label>
-              <input type="number" name="ngl" value="99" min="0" />
+              <input type="number" name="ngl" value="99" min="0" title="Layers on GPU (99 = all). Lower (e.g. 35) to free VRAM for KV cache if OOM in logs." />
             </div>
             <div>
               <label>Memory</label>
@@ -376,19 +440,19 @@
           <div class="form-row three-cols">
             <div class="form-row-check">
               <label class="checkbox-label">
-                <input type="checkbox" name="contextShift" />
-                <span>Context shift (--context-shift)</span>
+                <input type="checkbox" name="contextShift" title="On/off: unchecked = off" />
+                <span>Context shift — on/off (--context-shift)</span>
               </label>
             </div>
             <div class="form-row-check">
               <label class="checkbox-label">
-                <input type="checkbox" name="cachePrompt" checked />
-                <span>Cache prompt (--cache-prompt)</span>
+                <input type="checkbox" name="cachePrompt" checked title="On/off: unchecked = off" />
+                <span>Cache prompt — on/off (--cache-prompt)</span>
               </label>
             </div>
             <div>
-              <label>Cache reuse (--cache-reuse)</label>
-              <input type="number" name="cacheReuse" min="0" placeholder="0 = off" title="Min chunk size to reuse KV cache via shifting; 0 disables" />
+              <label>Cache reuse — on/off (--cache-reuse)</label>
+              <input type="number" name="cacheReuse" min="0" placeholder="0 = off" title="0 = off; set &gt; 0 to turn on (min chunk size to reuse KV cache)" />
             </div>
           </div>
           <div class="form-row three-cols">
@@ -445,7 +509,15 @@
             <input type="number" name="sleepIdleSeconds" min="0" placeholder="off" title="Unload model from VRAM after N seconds idle; GPU can drop to low power. 0 or empty = disabled." />
             <span class="form-hint">Reduces GPU power when idle. e.g. 600 = 10 min. Leave empty for always-on.</span>
           </div>
-          <div class="form-row two-cols">
+          <div class="form-row three-cols">
+            <div>
+              <label>GPU access</label>
+              <select name="gpus" title="Use “None” if you see “could not select device driver with capabilities [[gpu]]” (no NVIDIA Container Toolkit or no GPU).">
+                <option value="all">All GPUs</option>
+                <option value="none">None (CPU only)</option>
+              </select>
+              <span class="form-hint form-hint-inline">None = no --gpus flag (CPU-only)</span>
+            </div>
             <div>
               <label>Restart</label>
               <select name="restart">
@@ -468,25 +540,35 @@
             <button type="button" class="btn btn-secondary btn-stop">Stop container</button>
             <button type="button" class="btn btn-secondary btn-restart-container" title="Stop then start with current settings (e.g. new ctx-size)">Restart container</button>
             <button type="button" class="btn btn-danger btn-delete">Delete container</button>
-            <button type="button" class="btn btn-secondary btn-container-update" title="Run app update (git pull + npm + launcher refresh)">Update app</button>
           </div>
+          <div class="runner-message"></div>
           <div class="container-zed-copy">
             <span class="container-zed-copy-label">Zed (copy-paste):</span>
-            <span class="container-zed-copy-line">API URL: <code class="container-zed-url">http://localhost:8080/v1</code> <button type="button" class="btn btn-small btn-copy-zed-field" data-copy="url" title="Copy API URL">Copy</button></span>
+            <span class="container-zed-copy-line">API URL (this PC): <code class="container-zed-url">http://localhost:8080/v1</code> <button type="button" class="btn btn-small btn-copy-zed-field" data-copy="url" title="Copy API URL">Copy</button></span>
+            <span class="container-zed-copy-line container-zed-lan-row hidden">Other devices (same network): <code class="container-zed-lan-url"></code> <button type="button" class="btn btn-small btn-copy-zed-field" data-copy="lan-url" title="Copy LAN URL">Copy</button></span>
             <span class="container-zed-copy-line">API key: <code class="container-zed-key">ollama</code> <button type="button" class="btn btn-small btn-copy-zed-field" data-copy="key" title="Copy API key">Copy</button></span>
             <span class="container-zed-copy-line">Model: <code class="container-zed-model">default</code> <small>(or check /v1/models)</small> <button type="button" class="btn btn-small btn-copy-zed-field" data-copy="model" title="Copy model">Copy</button></span>
+            <div class="container-system-prompt card">
+            <label class="container-system-prompt-label">System prompt</label>
+            <p class="container-system-prompt-hint">Used as the system message for chat/RAG (e.g. “You are a helpful assistant”). Choose a preset or edit below and save as new.</p>
+            <div class="container-system-prompt-row">
+              <select name="systemPromptPresetId" class="container-system-prompt-select" aria-label="System prompt preset">
+                <option value="default">Default</option>
+              </select>
+              <button type="button" class="btn btn-small btn-container-system-prompt-save" title="Save current text as a new preset">Save as preset</button>
+              <button type="button" class="btn btn-small btn-danger-outline btn-container-system-prompt-delete" title="Delete selected preset (except Default)">Delete preset</button>
+            </div>
+            <textarea name="systemPromptContent" class="container-system-prompt-textarea" rows="3" placeholder="You are a helpful assistant" spellcheck="true">You are a helpful assistant</textarea>
+          </div>
+          <p class="container-webui-hint"><strong>localhost</strong> = this computer only (127.0.0.1). Use the “Other devices” URL from another machine on your network. If the URL doesn’t connect: (1) Wait for the model to load — check <strong>Logs</strong> for “listening” or “HTTP server”. (2) If Logs show <strong>“out of memory”</strong> or <strong>“failed to allocate buffer for kv cache”</strong>, lower <strong>ctx-size</strong> (e.g. to 8192) and/or <strong>n_gpu_layers (-ngl)</strong> (e.g. to 35), then <strong>Restart container</strong>. (3) Set <strong>Network</strong> to <strong>host</strong> and Restart if needed. (4) Try <code>http://127.0.0.1:8080</code> in Firefox.</p>
           </div>
         </form>
-        <div class="runner-message"></div>
       </div>
     </section>
   </template>
 
   <footer class="app-footer">
     <span class="footer-runtime" id="footerRuntime" title="Container runtime (Docker or Podman)">Runtime: …</span>
-    <button type="button" class="btn btn-footer btn-secondary" id="btnInstallLlamacpp" title="Open llama.cpp install and server options">Install llama.cpp options</button>
-    <button type="button" class="btn btn-footer btn-secondary" id="btnUpdate" title="Run app update (git pull + npm + launcher refresh)">Update</button>
-    <span class="footer-update-status" id="footerUpdateStatus" aria-live="polite"></span>
     <span class="footer-dev">Developer: <a href="https://whynotproductions.netlify.app/" target="_blank" rel="noopener noreferrer">Zerwiz</a></span>
     <span class="footer-tagline">Movement over ego. Collaboration over competition. Action over perfection.</span>
   </footer>

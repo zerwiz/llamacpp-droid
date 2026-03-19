@@ -51,10 +51,18 @@ contextBridge.exposeInMainWorld('app', {
   runUpdate: () => ipcRenderer.invoke('app:run-update'),
   openRagDoc: () => ipcRenderer.invoke('app:open-rag-doc'),
   openZedDoc: () => ipcRenderer.invoke('app:open-zed-doc'),
+  openHelpDoc: () => ipcRenderer.invoke('app:open-help-doc'),
+  getLocalAddresses: () => ipcRenderer.invoke('app:get-local-addresses'),
+  getDockerRunPreview: (config) => ipcRenderer.invoke('app:get-docker-run-preview', config),
 });
 
 contextBridge.exposeInMainWorld('rag', {
-  query: (serverUrl, query, context) => ipcRenderer.invoke('rag:query', { serverUrl, query, context }),
+  pluginAvailable: () => ipcRenderer.invoke('rag:plugin-available'),
+  init: (config) => ipcRenderer.invoke('rag:init', config),
+  ingest: (opts) => ipcRenderer.invoke('rag:ingest', opts),
+  retrieve: (opts) => ipcRenderer.invoke('rag:retrieve', opts),
+  query: (serverUrl, context, messageHistory, newUserMessage) =>
+    ipcRenderer.invoke('rag:query', { serverUrl, context, messageHistory, newUserMessage }),
 });
 
 contextBridge.exposeInMainWorld('models', {
@@ -75,4 +83,5 @@ contextBridge.exposeInMainWorld('models', {
 
 contextBridge.exposeInMainWorld('dialog', {
   showOpenDirectory: () => ipcRenderer.invoke('dialog:show-open-directory'),
+  showOpenFiles: (opts) => ipcRenderer.invoke('dialog:show-open-files', opts),
 });

@@ -6,13 +6,15 @@
   "scripts": {
     "start": "electron . --no-sandbox",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "install-rag": "npm install @langchain/community@^0.3.28 @langchain/core@^0.3.23 @langchain/textsplitters@^0.1.0 @lancedb/lancedb@^0.19.1 langchain@^0.3.14 --no-save"
   },
   "author": "",
   "license": "MIT",
   "overrides": {
     "yauzl": ">=3.2.1"
   },
+  "dependencies": {},
   "devDependencies": {
     "electron": "^41.0.2",
     "electron-builder": "^26.8.1"

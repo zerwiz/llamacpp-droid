@@ -2,7 +2,31 @@ const { app, BrowserWindow, ipcMain, nativeImage, shell, dialog } = require('ele
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const os = require('os');
 const { spawn, spawnSync } = require('child_process');
+
+// Non-internal IPv4 (LAN address) for "other devices" URL; re-fetched each call so it stays correct
+function getLocalAddresses() {
+  const candidates = [];
+  try {
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      const isLikelyDocker = /^docker|veth|br-|virbr/i.test(name);
+      for (const net of nets[name]) {
+        const isV4 = net.family === 'IPv4' || (typeof net.family === 'number' && net.family === 4);
+        if (!isV4 || net.internal) continue;
+        const addr = (net.address || '').trim();
+        if (!addr || addr.startsWith('127.')) continue;
+        candidates.push({ address: addr, prefer: !isLikelyDocker });
+      }
+    }
+    const preferred = candidates.find((c) => c.prefer);
+    const lanIp = (preferred || candidates[0]) ? (preferred || candidates[0]).address : null;
+    return { lanIp: lanIp || null };
+  } catch (_) {
+    return { lanIp: null };
+  }
+}
 
 // Allow running on Linux without setuid chrome-sandbox
 app.commandLine.appendSwitch('no-sandbox');
@@ -22,17 +46,20 @@ function getContainerRuntime() {
 
 // ---- Container run/create/stop/status (same CLI for docker and podman) ----
 function buildDockerContainerArgs(config) {
+  const network = config.network || 'host';
+  const port = Number(config.port) || 8080;
   const dockerArgs = [
     '--name', config.containerName || 'llamacpp',
     '--restart', config.restart || 'always',
-    '--gpus', config.gpus || 'all',
-    '--network', config.network || 'host',
+    ...(config.gpus == null || String(config.gpus).toLowerCase().trim() !== 'none' ? ['--gpus', (config.gpus && String(config.gpus).toLowerCase().trim() !== 'none') ? config.gpus : 'all'] : []),
+    '--network', network,
     '-v', `${config.volumeHost || ''}:/models`,
     '--memory', config.memory || '24g',
     '--memory-swap', config.memorySwap || '32g',
     config.image || 'ghcr.io/ggml-org/llama.cpp:server-cuda',
     '--host', config.host || '0.0.0.0',
-    '--port', String(config.port || 8080),
+    '--port', String(port),
+    ...(network === 'bridge' ? ['-p', `${port}:${port}`] : []),
     '--ctx-size', String(config.ctxSize || 32768),
     '-ngl', String(config.ngl ?? 99),
   ];
@@ -169,9 +196,17 @@ function stopStream() {
   }
 }
 
-ipcMain.handle('log-stream:start', (_, containerName = 'llamacpp') => {
+ipcMain.handle('log-stream:start', async (_, containerName = 'llamacpp') => {
   stopStream();
   const name = String(containerName).trim() || 'llamacpp';
+  const inspect = await dockerInspect(name);
+  const noContainer = inspect.error && (inspect.error.includes('No such container') || inspect.error.includes('no such container'));
+  if (noContainer && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('log-stream:error', `Container "${name}" does not exist. Create and run it from the Container tab first.`);
+    mainWindow.webContents.send('log-stream:closed', { code: 1, signal: null });
+    return { ok: false, error: 'no such container' };
+  }
+
   const rt = getContainerRuntime();
   logProcess = spawn(rt, ['logs', '-f', '--tail', '500', name], {
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -579,6 +614,18 @@ ipcMain.handle('dialog:show-open-directory', async () => {
   return { path: result.filePaths[0], error: null };
 });
 
+ipcMain.handle('dialog:show-open-files', async (_, opts) => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win) return { paths: [], error: 'No window' };
+  const filters = (opts && opts.filters) || [{ name: 'Text', extensions: ['txt', 'md', 'json'] }];
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openFile', 'multiSelections'],
+    filters: filters,
+  });
+  if (result.canceled || !result.filePaths.length) return { paths: [], error: null };
+  return { paths: result.filePaths, error: null };
+});
+
 ipcMain.handle('app:open-url', (_, url) => {
   if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
     shell.openExternal(url);
@@ -605,15 +652,84 @@ ipcMain.handle('app:open-zed-doc', () => {
   return shell.openPath(zedDoc).then((err) => ({ ok: !err, error: err || null }));
 });
 
-// RAG: send query (and optional context) to the same llama.cpp server as the Web UI
-ipcMain.handle('rag:query', async (_, { serverUrl, query, context }) => {
+ipcMain.handle('app:open-help-doc', () => {
+  const appRoot = path.join(app.getAppPath(), '..', '..');
+  const helpDoc = path.join(appRoot, 'README.md');
+  if (!fs.existsSync(helpDoc)) {
+    return Promise.resolve({ ok: false, error: 'README.md not found' });
+  }
+  return shell.openPath(helpDoc).then((err) => ({ ok: !err, error: err || null }));
+});
+
+ipcMain.handle('app:get-local-addresses', () => Promise.resolve(getLocalAddresses()));
+
+// RAG plugin (optional): document retrieval uses LangChain + LanceDB; chat works without it
+ipcMain.handle('rag:plugin-available', async () => {
+  try {
+    const rag = require('./rag-service.js');
+    const err = rag.loadDeps();
+    return { available: !err, error: err || null };
+  } catch (e) {
+    return { available: false, error: e.message || 'RAG plugin not installed' };
+  }
+});
+
+function getRagService() {
+  const rag = require('./rag-service.js');
+  if (rag.loadDeps()) return null;
+  return rag;
+}
+
+ipcMain.handle('rag:init', async (_, config) => {
+  try {
+    const rag = getRagService();
+    if (!rag) return { ok: false, error: 'RAG plugin not installed' };
+    const cfg = config || {};
+    if (!cfg.storagePath) cfg.storagePath = path.join(app.getPath('userData'), 'rag');
+    return rag.initRag(cfg);
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('rag:ingest', async (_, opts) => {
+  try {
+    const rag = getRagService();
+    if (!rag) return { ok: false, error: 'RAG plugin not installed' };
+    await rag.initRag({ storagePath: path.join(app.getPath('userData'), 'rag') });
+    return await rag.ingestDocuments(opts || {});
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('rag:retrieve', async (_, opts) => {
+  try {
+    const rag = getRagService();
+    if (!rag) return { ok: false, chunks: [], error: 'RAG plugin not installed' };
+    await rag.initRag({ storagePath: path.join(app.getPath('userData'), 'rag') });
+    return await rag.retrieve(opts || {});
+  } catch (e) {
+    return { ok: false, chunks: [], error: e.message || String(e) };
+  }
+});
+
+// RAG: chat with optional context and message history (same llama.cpp server as Web UI)
+ipcMain.handle('rag:query', async (_, { serverUrl, context, messageHistory, newUserMessage }) => {
   const base = (serverUrl || 'http://localhost:8080').trim().replace(/\/+$/, '');
   const url = base + '/v1/chat/completions';
   const messages = [];
   if (context && String(context).trim()) {
     messages.push({ role: 'system', content: String(context).trim() });
   }
-  messages.push({ role: 'user', content: String(query || '').trim() || 'Hello' });
+  const history = Array.isArray(messageHistory) ? messageHistory : [];
+  history.forEach((m) => {
+    if (m && (m.role === 'user' || m.role === 'assistant') && m.content != null) {
+      messages.push({ role: m.role, content: String(m.content).trim() });
+    }
+  });
+  const userContent = String(newUserMessage != null ? newUserMessage : '').trim() || 'Hello';
+  messages.push({ role: 'user', content: userContent });
   const body = { model: 'llama', messages, stream: false };
   try {
     const res = await fetch(url, {
@@ -662,6 +778,27 @@ ipcMain.handle('app:run-update', () => {
     });
     child.on('error', (err) => resolve({ ok: false, stdout: '', stderr: '', error: err.message }));
   });
+});
+
+// Preview full docker run command for a config (for config/env view)
+function getDockerRunCommand(config) {
+  const rt = getContainerRuntime();
+  const args = buildDockerContainerArgs(config);
+  const quoted = args.map((a) => {
+    const s = String(a);
+    if (/[\s'"\\]/.test(s)) return "'" + s.replace(/\\/g, '\\\\').replace(/'/g, "'\\''") + "'";
+    return s;
+  });
+  return rt + ' run -d ' + quoted.join(' ');
+}
+
+ipcMain.handle('app:get-docker-run-preview', (_, config) => {
+  try {
+    const command = getDockerRunCommand(config);
+    return { ok: true, command, config };
+  } catch (err) {
+    return { ok: false, command: '', config: null, error: err && err.message ? err.message : String(err) };
+  }
 });
 
 app.whenReady().then(createWindow);

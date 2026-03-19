@@ -1,6 +1,28 @@
 // ---- Containers state ----
 const STORAGE_KEY = 'llamacpp-droid-settings';
 const PROFILES_KEY = 'llamacpp-droid-profiles';
+const SYSTEM_PROMPTS_KEY = 'llamacpp-droid-system-prompts';
+
+const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant';
+
+function getSystemPromptPresets() {
+  try {
+    const raw = localStorage.getItem(SYSTEM_PROMPTS_KEY);
+    if (!raw) return { presets: [{ id: 'default', name: 'Default', content: DEFAULT_SYSTEM_PROMPT }] };
+    const data = JSON.parse(raw);
+    const presets = Array.isArray(data.presets) && data.presets.length ? data.presets : [{ id: 'default', name: 'Default', content: DEFAULT_SYSTEM_PROMPT }];
+    if (!presets.find((p) => p.id === 'default')) presets.unshift({ id: 'default', name: 'Default', content: DEFAULT_SYSTEM_PROMPT });
+    return { presets };
+  } catch (_) {
+    return { presets: [{ id: 'default', name: 'Default', content: DEFAULT_SYSTEM_PROMPT }] };
+  }
+}
+
+function saveSystemPromptPresets(presets) {
+  try {
+    localStorage.setItem(SYSTEM_PROMPTS_KEY, JSON.stringify({ presets }));
+  } catch (_) {}
+}
 let nextContainerId = 1;
 const containers = [];
 
@@ -31,7 +53,7 @@ function getConfig(form, defaultName = 'llamacpp', defaultPort = 8080) {
     memorySwap: get('memorySwap') || '32g',
     restart: get('restart') || 'always',
     network: get('network') || 'host',
-    gpus: 'all',
+    gpus: (() => { const v = (get('gpus') || form.querySelector('[name="gpus"]')?.value || 'all').toLowerCase().trim(); return v === 'none' ? 'none' : 'all'; })(),
     threads: threadVal === '' ? undefined : threadVal,
     threadsBatch: tbVal === '' ? undefined : tbVal,
     batchSize: batchVal === '' ? undefined : batchVal,
@@ -66,6 +88,7 @@ function getDefaultConfig(index) {
     memorySwap: '32g',
     restart: 'always',
     network: 'host',
+    gpus: 'all',
     threads: '',
     threadsBatch: '',
     batchSize: '',
@@ -80,6 +103,8 @@ function getDefaultConfig(index) {
     ctxCheckpoints: '',
     kvUnified: true,
     sleepIdleSeconds: '',
+    systemPromptPresetId: 'default',
+    systemPromptContent: DEFAULT_SYSTEM_PROMPT,
   };
 }
 
@@ -101,6 +126,7 @@ function getContainerSettings(form, defaults) {
     memorySwap: get('memorySwap') || defaults.memorySwap,
     restart: get('restart') || defaults.restart,
     network: get('network') || defaults.network,
+    gpus: (() => { const v = (get('gpus') || form.querySelector('[name="gpus"]')?.value || defaults.gpus || 'all').toLowerCase().trim(); return v === 'none' ? 'none' : 'all'; })(),
     threads: get('threads'),
     threadsBatch: get('threadsBatch'),
     batchSize: get('batchSize'),
@@ -115,16 +141,20 @@ function getContainerSettings(form, defaults) {
     ctxCheckpoints: get('ctxCheckpoints') || '',
     kvUnified: form.querySelector('[name="kvUnified"]')?.checked !== false,
     sleepIdleSeconds: get('sleepIdleSeconds') || '',
+    systemPromptPresetId: get('systemPromptPresetId') || 'default',
+    systemPromptContent: get('systemPromptContent') || defaults.systemPromptContent || DEFAULT_SYSTEM_PROMPT,
   };
 }
 
 function getCurrentSettings() {
   const list = containers.map((entry) => getContainerSettings(entry.form, entry.defaults));
   const logName = document.getElementById('logContainerName');
+  const ragSelect = document.getElementById('ragContainerSelect');
   return {
     version: 1,
     containers: list,
     logContainerName: logName ? logName.value.trim() || 'llamacpp' : 'llamacpp',
+    ragContainerId: ragSelect ? (ragSelect.value || '') : '',
     swap: {
       containerName: swapContainerName ? swapContainerName.value.trim() : 'llamacpp',
       volumeHost: swapVolumeHost ? swapVolumeHost.value.trim() : '',
@@ -177,6 +207,8 @@ function mergeWithDefaults(saved, index) {
     ctxCheckpoints: saved.ctxCheckpoints != null ? saved.ctxCheckpoints : def.ctxCheckpoints,
     kvUnified: saved.kvUnified !== undefined ? !!saved.kvUnified : def.kvUnified,
     sleepIdleSeconds: saved.sleepIdleSeconds != null ? saved.sleepIdleSeconds : def.sleepIdleSeconds,
+    systemPromptPresetId: saved.systemPromptPresetId != null ? saved.systemPromptPresetId : def.systemPromptPresetId,
+    systemPromptContent: saved.systemPromptContent != null ? saved.systemPromptContent : def.systemPromptContent,
   };
 }
 
@@ -365,8 +397,8 @@ function stopMonitor() {
 }
 
 function showPanel(tabId) {
-  const panelId = tabId === 'logs' ? 'panel-logs' : tabId === 'monitor' ? 'panel-monitor' : tabId === 'swap' ? 'panel-swap' : tabId === 'rag' ? 'panel-rag' : tabId === 'models' ? 'panel-models' : 'panel-' + tabId;
-  document.querySelectorAll('#container-panels .panel, #panel-logs, #panel-swap, #panel-monitor, #panel-rag, #panel-models').forEach((p) => {
+  const panelId = tabId === 'logs' ? 'panel-logs' : tabId === 'monitor' ? 'panel-monitor' : tabId === 'swap' ? 'panel-swap' : tabId === 'rag' ? 'panel-rag' : tabId === 'models' ? 'panel-models' : tabId === 'settings' ? 'panel-settings' : 'panel-' + tabId;
+  document.querySelectorAll('#container-panels .panel, #panel-logs, #panel-swap, #panel-monitor, #panel-rag, #panel-models, #panel-settings').forEach((p) => {
     p.classList.toggle('active', p.id === panelId);
   });
   document.querySelectorAll('#nav .tab[data-tab]').forEach((b) => {
@@ -374,6 +406,7 @@ function showPanel(tabId) {
   });
   if (tabId === 'monitor') startMonitor();
   else stopMonitor();
+  if (tabId === 'settings') refreshSettingsConfigUI();
 }
 
 function addContainer(defaults) {
@@ -391,7 +424,6 @@ function addContainer(defaults) {
   const btnStop = card.querySelector('.btn-stop');
   const btnDelete = card.querySelector('.btn-delete');
   const btnRestartContainer = card.querySelector('.btn-restart-container');
-  const btnContainerUpdate = card.querySelector('.btn-container-update');
 
   section.id = 'panel-container-' + id;
   section.dataset.containerId = String(id);
@@ -410,6 +442,8 @@ function addContainer(defaults) {
   form.querySelector('[name="memorySwap"]').value = defaults.memorySwap;
   form.querySelector('[name="restart"]').value = defaults.restart;
   form.querySelector('[name="network"]').value = defaults.network;
+  const gpusEl = form.querySelector('[name="gpus"]');
+  if (gpusEl) gpusEl.value = (defaults.gpus === 'none') ? 'none' : 'all';
   if (defaults.threads !== undefined && defaults.threads !== '') form.querySelector('[name="threads"]').value = defaults.threads;
   if (defaults.threadsBatch !== undefined && defaults.threadsBatch !== '') form.querySelector('[name="threadsBatch"]').value = defaults.threadsBatch;
   if (defaults.batchSize !== undefined && defaults.batchSize !== '') form.querySelector('[name="batchSize"]').value = defaults.batchSize;
@@ -428,6 +462,10 @@ function addContainer(defaults) {
   const kvUnifiedInput = form.querySelector('[name="kvUnified"]');
   if (kvUnifiedInput) kvUnifiedInput.checked = defaults.kvUnified !== false;
   if (defaults.sleepIdleSeconds) form.querySelector('[name="sleepIdleSeconds"]').value = defaults.sleepIdleSeconds;
+  const systemPromptPresetSelect = form.querySelector('[name="systemPromptPresetId"]');
+  const systemPromptContentTa = form.querySelector('[name="systemPromptContent"]');
+  if (systemPromptPresetSelect) systemPromptPresetSelect.value = defaults.systemPromptPresetId || 'default';
+  if (systemPromptContentTa) systemPromptContentTa.value = defaults.systemPromptContent || DEFAULT_SYSTEM_PROMPT;
 
   const tabBtn = document.createElement('button');
   tabBtn.type = 'button';
@@ -531,9 +569,15 @@ function addContainer(defaults) {
     try {
       const result = await window.docker.run(config);
       if (result.ok) {
-        setMessage('Container started. Server on http://' + config.host + ':' + config.port, 'success');
+        setMessage('Container started successfully.\nServer at http://localhost:' + config.port + ' once the model has loaded. If it doesn’t connect, the server inside may have failed (e.g. out of memory) — check the Logs tab.', 'success');
         refreshStatus();
         updateTabLabel();
+        if (window.app && typeof window.app.getLocalAddresses === 'function') {
+          window.app.getLocalAddresses().then((r) => {
+            window._cachedLanIp = r.lanIp || null;
+            updateZedUrl();
+          });
+        }
       } else {
         setMessage(result.error || 'Run failed', 'error');
       }
@@ -550,9 +594,15 @@ function addContainer(defaults) {
     try {
       const result = await window.docker.create(config);
       if (result.ok) {
-        setMessage('Container created (not started). Use Run container to start.', 'success');
+        setMessage('Container created successfully (not started). Use Run container to start.', 'success');
         refreshStatus();
         updateTabLabel();
+        if (window.app && typeof window.app.getLocalAddresses === 'function') {
+          window.app.getLocalAddresses().then((r) => {
+            window._cachedLanIp = r.lanIp || null;
+            updateZedUrl();
+          });
+        }
       } else {
         setMessage(result.error || 'Create failed', 'error');
       }
@@ -596,9 +646,15 @@ function addContainer(defaults) {
         setMessage('Starting with current settings…');
         const runResult = await window.docker.run(config);
         if (runResult.ok) {
-          setMessage('Container restarted. Server on http://' + config.host + ':' + config.port + ' (ctx-size ' + config.ctxSize + ')', 'success');
+          setMessage('Container restarted successfully.\nServer at http://localhost:' + config.port + ' once the model has loaded. If it doesn’t connect, the server inside may have failed (e.g. out of memory) — check the Logs tab.', 'success');
           refreshStatus();
           updateTabLabel();
+          if (window.app && typeof window.app.getLocalAddresses === 'function') {
+            window.app.getLocalAddresses().then((r) => {
+              window._cachedLanIp = r.lanIp || null;
+              updateZedUrl();
+            });
+          }
         } else {
           setMessage(runResult.error || 'Run failed', 'error');
         }
@@ -613,34 +669,97 @@ function addContainer(defaults) {
     removeContainer(id);
   });
 
-  if (btnContainerUpdate && window.app && typeof window.app.runUpdate === 'function') {
-    btnContainerUpdate.addEventListener('click', async () => {
-      btnContainerUpdate.disabled = true;
-      setMessage('Updating…');
-      try {
-        const result = await window.app.runUpdate();
-        if (result.ok) {
-          setMessage('Update finished.', 'success');
-        } else {
-          setMessage((result.error || 'Update failed') + ' (Run ldroid update in a terminal if needed.)', 'error');
-        }
-      } catch (err) {
-        setMessage('Update error: ' + (err && err.message ? err.message : String(err)), 'error');
+  refreshContainerSystemPromptPresetDropdown(form, defaults);
+  const sysPromptSelect = form.querySelector('[name="systemPromptPresetId"]');
+  const sysPromptTextarea = form.querySelector('[name="systemPromptContent"]');
+  const btnSysPromptSave = card.querySelector('.btn-container-system-prompt-save');
+  const btnSysPromptDelete = card.querySelector('.btn-container-system-prompt-delete');
+  if (sysPromptSelect) {
+    sysPromptSelect.addEventListener('change', () => {
+      const { presets } = getSystemPromptPresets();
+      const p = presets.find((x) => x.id === sysPromptSelect.value);
+      if (sysPromptTextarea && p) sysPromptTextarea.value = p.content || '';
+      defaults.systemPromptPresetId = sysPromptSelect.value;
+      defaults.systemPromptContent = sysPromptTextarea ? sysPromptTextarea.value : DEFAULT_SYSTEM_PROMPT;
+      saveSettings();
+    });
+  }
+  if (btnSysPromptSave) {
+    btnSysPromptSave.addEventListener('click', () => {
+      const name = window.prompt('Preset name', 'My preset');
+      if (!name || !name.trim()) return;
+      const content = (sysPromptTextarea && sysPromptTextarea.value) ? sysPromptTextarea.value.trim() : '';
+      const { presets } = getSystemPromptPresets();
+      const newId = 'p' + Date.now();
+      presets.push({ id: newId, name: name.trim(), content: content || DEFAULT_SYSTEM_PROMPT });
+      saveSystemPromptPresets(presets);
+      defaults.systemPromptPresetId = newId;
+      defaults.systemPromptContent = content || DEFAULT_SYSTEM_PROMPT;
+      refreshContainerSystemPromptPresetDropdown(form, defaults);
+      refreshAllContainerSystemPromptPresetDropdowns();
+      if (sysPromptSelect) sysPromptSelect.value = newId;
+      saveSettings();
+    });
+  }
+  if (btnSysPromptDelete) {
+    btnSysPromptDelete.addEventListener('click', () => {
+      const id = sysPromptSelect && sysPromptSelect.value ? sysPromptSelect.value : '';
+      if (id === 'default') return;
+      const { presets } = getSystemPromptPresets();
+      const next = presets.filter((p) => p.id !== id);
+      saveSystemPromptPresets(next);
+      if (defaults.systemPromptPresetId === id) {
+        defaults.systemPromptPresetId = 'default';
+        defaults.systemPromptContent = DEFAULT_SYSTEM_PROMPT;
+        if (sysPromptTextarea) sysPromptTextarea.value = DEFAULT_SYSTEM_PROMPT;
       }
-      btnContainerUpdate.disabled = false;
-      setTimeout(() => setMessage(''), 8000);
+      refreshContainerSystemPromptPresetDropdown(form, defaults);
+      refreshAllContainerSystemPromptPresetDropdowns();
+      saveSettings();
     });
   }
 
   const zedUrlEl = card.querySelector('.container-zed-url');
+  const zedLanRow = card.querySelector('.container-zed-lan-row');
+  const zedLanUrlEl = card.querySelector('.container-zed-lan-url');
   function updateZedUrl() {
-    if (!zedUrlEl) return;
     const host = (form.querySelector('[name="host"]') && form.querySelector('[name="host"]').value) ? form.querySelector('[name="host"]').value.trim() : (defaults.host || '0.0.0.0');
     const port = (form.querySelector('[name="port"]') && form.querySelector('[name="port"]').value) ? form.querySelector('[name="port"]').value : (defaults.port || 8080);
     const displayHost = host === '0.0.0.0' ? 'localhost' : host;
-    zedUrlEl.textContent = 'http://' + displayHost + ':' + port + '/v1';
+    if (zedUrlEl) zedUrlEl.textContent = 'http://' + displayHost + ':' + port + '/v1';
+    const lanIp = window._cachedLanIp;
+    if (zedLanRow && zedLanUrlEl) {
+      if (lanIp && (host === '0.0.0.0' || host === '')) {
+        zedLanUrlEl.textContent = 'http://' + lanIp + ':' + port + '/v1';
+        zedLanRow.classList.remove('hidden');
+      } else {
+        zedLanRow.classList.add('hidden');
+      }
+    }
   }
   updateZedUrl();
+  if (window.app && typeof window.app.getLocalAddresses === 'function' && !window._lanAddressesRequested) {
+    window._lanAddressesRequested = true;
+    window.app.getLocalAddresses().then((r) => {
+      window._cachedLanIp = r.lanIp || null;
+      containers.forEach((c) => {
+        const form = c.form;
+        const card = form && form.closest ? form.closest('.runner-card') : null;
+        if (!card) return;
+        const row = card.querySelector('.container-zed-lan-row');
+        const urlEl = card.querySelector('.container-zed-lan-url');
+        if (!row || !urlEl) return;
+        const host = (form.querySelector('[name="host"]') && form.querySelector('[name="host"]').value) ? form.querySelector('[name="host"]').value.trim() : (c.defaults.host || '0.0.0.0');
+        const port = (form.querySelector('[name="port"]') && form.querySelector('[name="port"]').value) ? form.querySelector('[name="port"]').value : (c.defaults.port || 8080);
+        if (window._cachedLanIp && (host === '0.0.0.0' || host === '')) {
+          urlEl.textContent = 'http://' + window._cachedLanIp + ':' + port + '/v1';
+          row.classList.remove('hidden');
+        } else {
+          row.classList.add('hidden');
+        }
+      });
+    });
+  }
   const hostInput = form.querySelector('[name="host"]');
   const portInput = form.querySelector('[name="port"]');
   if (hostInput) hostInput.addEventListener('input', updateZedUrl);
@@ -654,6 +773,9 @@ function addContainer(defaults) {
       if (which === 'url') {
         updateZedUrl();
         text = zedUrlEl ? zedUrlEl.textContent.trim() : 'http://localhost:8080/v1';
+      } else if (which === 'lan-url') {
+        updateZedUrl();
+        text = zedLanUrlEl ? zedLanUrlEl.textContent.trim() : '';
       } else if (which === 'key') {
         const el = card.querySelector('.container-zed-key');
         text = el ? el.textContent.trim() : 'ollama';
@@ -661,6 +783,7 @@ function addContainer(defaults) {
         const el = card.querySelector('.container-zed-model');
         text = el ? el.textContent.trim() : 'default';
       }
+      if (which === 'lan-url' && !text) return;
       try {
         await navigator.clipboard.writeText(text);
         const orig = btn.textContent;
@@ -688,6 +811,7 @@ function addContainer(defaults) {
   containers.push({ id, section, tabBtn, form, defaults });
   refreshStatus();
   showPanel('container-' + id);
+  refreshRagContainerDropdown();
   saveSettings();
 }
 
@@ -699,6 +823,7 @@ function removeContainer(id) {
   const [entry] = containers.splice(idx, 1);
   entry.tabBtn.remove();
   entry.section.remove();
+  refreshRagContainerDropdown();
   saveSettings();
   if (wasViewingThis) {
     if (containers.length > 0) {
@@ -752,6 +877,17 @@ function applySettingsToUI(data) {
     if (swapLightCtx && data.swap.lightCtx != null) swapLightCtx.value = data.swap.lightCtx;
     if (swapLightNgl && data.swap.lightNgl != null) swapLightNgl.value = data.swap.lightNgl;
   }
+  if (data.ragContainerId != null && data.ragContainerId !== '') {
+    const ragSel = document.getElementById('ragContainerSelect');
+    if (ragSel && containers.some((c) => String(c.id) === String(data.ragContainerId))) {
+      ragSel.value = String(data.ragContainerId);
+      const ragUrlEl = document.getElementById('ragServerUrl');
+      if (ragUrlEl) {
+        const entry = containers.find((c) => String(c.id) === String(data.ragContainerId));
+        if (entry) ragUrlEl.value = getContainerUrl(entry);
+      }
+    }
+  }
 }
 
 function loadProfile(data) {
@@ -762,6 +898,26 @@ function loadProfile(data) {
   saveSettings();
   refreshProfileDropdown();
   showPanel(containers.length > 0 ? 'container-' + containers[0].id : 'logs');
+}
+
+function refreshContainerSystemPromptPresetDropdown(form, containerDefaults) {
+  const select = form && form.querySelector('[name="systemPromptPresetId"]');
+  if (!select) return;
+  const { presets } = getSystemPromptPresets();
+  const selectedId = (containerDefaults && containerDefaults.systemPromptPresetId) || select.value || 'default';
+  select.innerHTML = '';
+  presets.forEach((p) => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.appendChild(opt);
+  });
+  const hasSelected = presets.some((p) => p.id === selectedId);
+  select.value = hasSelected ? selectedId : 'default';
+}
+
+function refreshAllContainerSystemPromptPresetDropdowns() {
+  containers.forEach((c) => refreshContainerSystemPromptPresetDropdown(c.form, c.defaults));
 }
 
 function refreshProfileDropdown() {
@@ -796,7 +952,7 @@ nav.addEventListener('click', (e) => {
   const tab = e.target.closest('.tab[data-tab]');
   if (!tab) return;
   const tabId = tab.dataset.tab;
-  if (tabId === 'logs' || tabId === 'monitor' || tabId === 'swap' || tabId === 'rag' || tabId === 'models' || (tabId && tabId.startsWith('container-'))) {
+  if (tabId === 'logs' || tabId === 'monitor' || tabId === 'swap' || tabId === 'rag' || tabId === 'models' || tabId === 'settings' || (tabId && tabId.startsWith('container-'))) {
     showPanel(tabId);
   }
 });
@@ -839,7 +995,7 @@ btnToggle.addEventListener('click', async () => {
     streaming = true;
     btnToggle.textContent = 'Stop stream';
     btnToggle.classList.add('streaming');
-    setStatus('Streaming logs from container “‘ + name +’”…', 'live');
+    setStatus(`Streaming logs from container "${name}"…`, 'live');
   } catch (err) {
     setStatus('Error: ' + (err && err.message ? err.message : String(err)), 'error');
   }
@@ -856,7 +1012,7 @@ window.logViewer.onClosed(() => {
   streaming = false;
   btnToggle.textContent = 'Start stream';
   btnToggle.classList.remove('streaming');
-  setStatus('Stream ended.', '');
+  if (!statusEl.classList.contains('error')) setStatus('Stream ended.', '');
 });
 
 // ---- Swap (presets) ----
@@ -1047,11 +1203,21 @@ if (saved && saved.containers && Array.isArray(saved.containers) && saved.contai
   bindSwapSave();
   saveSettings();
   showPanel(containers.length > 0 ? 'container-' + containers[0].id : 'logs');
+  refreshRagContainerDropdown();
+  const ragSel = document.getElementById('ragContainerSelect');
+  if (saved.ragContainerId != null && saved.ragContainerId !== '' && ragSel && containers.some((c) => String(c.id) === String(saved.ragContainerId))) {
+    ragSel.value = String(saved.ragContainerId);
+    if (ragServerUrl) {
+      const entry = containers.find((c) => String(c.id) === String(saved.ragContainerId));
+      if (entry) ragServerUrl.value = getContainerUrl(entry);
+    }
+  }
 } else {
   addContainer(getDefaultConfig(0));
   addContainer(getDefaultConfig(1));
   showPanel('container-1');
   bindSwapSave();
+  refreshRagContainerDropdown();
 }
 refreshProfileDropdown();
 
@@ -1072,10 +1238,10 @@ if (btnInstallLlamacpp && window.app && typeof window.app.openUrl === 'function'
 }
 
 // Update: run update script and show result
-const btnOpenWebUi = document.getElementById('btnOpenWebUi');
-if (btnOpenWebUi && window.app && typeof window.app.openUrl === 'function') {
-  btnOpenWebUi.addEventListener('click', () => {
-    window.app.openUrl('http://localhost:8080');
+const btnHelp = document.getElementById('btnHelp');
+if (btnHelp && window.app && typeof window.app.openHelpDoc === 'function') {
+  btnHelp.addEventListener('click', () => {
+    window.app.openHelpDoc();
   });
 }
 
@@ -1086,30 +1252,163 @@ if (btnZedSetup && window.app && typeof window.app.openZedDoc === 'function') {
   });
 }
 
-// RAG panel — same server as Web UI
+// RAG panel — use only the container the user selects (URL + system prompt from that container)
+function getContainerUrl(entry) {
+  const host = (entry.form.querySelector('[name="host"]') && entry.form.querySelector('[name="host"]').value) ? entry.form.querySelector('[name="host"]').value.trim() : (entry.defaults.host || '0.0.0.0');
+  const port = (entry.form.querySelector('[name="port"]') && entry.form.querySelector('[name="port"]').value) ? entry.form.querySelector('[name="port"]').value : (entry.defaults.port || 8080);
+  return 'http://' + (host === '0.0.0.0' ? 'localhost' : host) + ':' + port;
+}
+function getSystemPromptForContainer(entry) {
+  const content = (entry.form.querySelector('[name="systemPromptContent"]') && entry.form.querySelector('[name="systemPromptContent"]').value) ? entry.form.querySelector('[name="systemPromptContent"]').value.trim() : (entry.defaults.systemPromptContent || DEFAULT_SYSTEM_PROMPT);
+  return content || DEFAULT_SYSTEM_PROMPT;
+}
+function getSystemPromptForServerUrl(serverUrl) {
+  const base = (serverUrl || '').trim().replace(/\/+$/, '');
+  for (const c of containers) {
+    const url = getContainerUrl(c);
+    if (base === url || base === 'http://localhost:' + (c.form.querySelector('[name="port"]') && c.form.querySelector('[name="port"]').value ? c.form.querySelector('[name="port"]').value : c.defaults.port || 8080)) {
+      return getSystemPromptForContainer(c);
+    }
+  }
+  return DEFAULT_SYSTEM_PROMPT;
+}
+
+function refreshRagContainerDropdown() {
+  const sel = document.getElementById('ragContainerSelect');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— None (use URL below) —</option>';
+  containers.forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = String(c.id);
+    opt.textContent = (c.tabBtn && c.tabBtn.textContent) || (c.form.querySelector('[name="tabName"]') && c.form.querySelector('[name="tabName"]').value) || c.defaults.tabName || c.defaults.containerName || ('Container ' + c.id);
+    sel.appendChild(opt);
+  });
+  if (current && containers.some((c) => String(c.id) === current)) sel.value = current;
+  else if (current) sel.value = '';
+}
+
 const ragServerUrl = document.getElementById('ragServerUrl');
+const ragContainerSelect = document.getElementById('ragContainerSelect');
+const ragCollectionName = document.getElementById('ragCollectionName');
+const ragUseRetrieval = document.getElementById('ragUseRetrieval');
 const ragContext = document.getElementById('ragContext');
 const ragQuery = document.getElementById('ragQuery');
 const btnRagSend = document.getElementById('btnRagSend');
 const ragStatus = document.getElementById('ragStatus');
 const ragResponse = document.getElementById('ragResponse');
+const ragIngestStatus = document.getElementById('ragIngestStatus');
 const btnRagOpenWebui = document.querySelector('.btn-rag-open-webui');
+const btnRagAddDocs = document.getElementById('btnRagAddDocs');
+
+// RAG is an optional plugin; show install message when not installed
+async function refreshRagPluginUI() {
+  const requiredEl = document.getElementById('ragPluginRequired');
+  const contentEl = document.getElementById('ragContent');
+  if (!requiredEl || !contentEl) return;
+  if (!window.rag || typeof window.rag.pluginAvailable !== 'function') {
+    requiredEl.classList.remove('hidden');
+    contentEl.classList.add('hidden');
+    return;
+  }
+  try {
+    const { available } = await window.rag.pluginAvailable();
+    if (available) {
+      requiredEl.classList.add('hidden');
+      contentEl.classList.remove('hidden');
+    } else {
+      requiredEl.classList.remove('hidden');
+      contentEl.classList.add('hidden');
+    }
+  } catch (_) {
+    requiredEl.classList.remove('hidden');
+    contentEl.classList.add('hidden');
+  }
+}
+refreshRagPluginUI();
+const btnRagCheckPlugin = document.getElementById('btnRagCheckPlugin');
+if (btnRagCheckPlugin) btnRagCheckPlugin.addEventListener('click', () => refreshRagPluginUI());
+
+if (ragContainerSelect) {
+  ragContainerSelect.addEventListener('change', () => {
+    const selectedId = ragContainerSelect.value ? ragContainerSelect.value.trim() : '';
+    if (selectedId && ragServerUrl) {
+      const entry = containers.find((c) => String(c.id) === selectedId);
+      if (entry) ragServerUrl.value = getContainerUrl(entry);
+    }
+    saveSettings();
+  });
+}
+
 if (btnRagOpenWebui && ragServerUrl && window.app && typeof window.app.openUrl === 'function') {
   btnRagOpenWebui.addEventListener('click', () => {
     const url = (ragServerUrl.value || 'http://localhost:8080').trim();
     if (url) window.app.openUrl(url);
   });
 }
+
+if (btnRagAddDocs && window.rag && typeof window.rag.ingest === 'function' && window.dialog && typeof window.dialog.showOpenFiles === 'function') {
+  btnRagAddDocs.addEventListener('click', async () => {
+    const collection = (ragCollectionName && ragCollectionName.value) ? ragCollectionName.value.trim() : 'default';
+    if (ragIngestStatus) ragIngestStatus.textContent = 'Opening file picker…';
+    const { paths, error: dialogErr } = await window.dialog.showOpenFiles();
+    if (dialogErr || !paths || paths.length === 0) {
+      if (ragIngestStatus) ragIngestStatus.textContent = dialogErr || 'No files selected.';
+      return;
+    }
+    if (ragIngestStatus) ragIngestStatus.textContent = 'Ingesting…';
+    btnRagAddDocs.disabled = true;
+    try {
+      const result = await window.rag.ingest({ paths, collectionName: collection || 'default' });
+      if (result.ok) {
+        if (ragIngestStatus) ragIngestStatus.textContent = `Done. ${result.chunksCreated || 0} chunks created in "${collection || 'default'}".`;
+      } else {
+        if (ragIngestStatus) ragIngestStatus.textContent = 'Error: ' + (result.error || 'Unknown');
+      }
+    } catch (err) {
+      if (ragIngestStatus) ragIngestStatus.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+    }
+    btnRagAddDocs.disabled = false;
+    setTimeout(() => { if (ragIngestStatus) ragIngestStatus.textContent = ''; }, 8000);
+  });
+}
+
 if (btnRagSend && window.rag && typeof window.rag.query === 'function') {
   btnRagSend.addEventListener('click', async () => {
-    const serverUrl = (ragServerUrl && ragServerUrl.value) ? ragServerUrl.value.trim() : 'http://localhost:8080';
+    let serverUrl = 'http://localhost:8080';
+    let systemPrompt = DEFAULT_SYSTEM_PROMPT;
+    const selectedId = ragContainerSelect && ragContainerSelect.value ? ragContainerSelect.value.trim() : '';
+    if (selectedId) {
+      const entry = containers.find((c) => String(c.id) === selectedId);
+      if (entry) {
+        serverUrl = getContainerUrl(entry);
+        systemPrompt = getSystemPromptForContainer(entry);
+      } else {
+        serverUrl = (ragServerUrl && ragServerUrl.value) ? ragServerUrl.value.trim() : serverUrl;
+        systemPrompt = getSystemPromptForServerUrl(serverUrl);
+      }
+    } else {
+      serverUrl = (ragServerUrl && ragServerUrl.value) ? ragServerUrl.value.trim() : serverUrl;
+      systemPrompt = getSystemPromptForServerUrl(serverUrl);
+    }
     const query = (ragQuery && ragQuery.value) ? ragQuery.value.trim() : '';
-    const context = (ragContext && ragContext.value) ? ragContext.value.trim() : '';
+    let extraContext = (ragContext && ragContext.value) ? ragContext.value.trim() : '';
+    if (ragUseRetrieval && ragUseRetrieval.checked && query && window.rag && typeof window.rag.retrieve === 'function') {
+      const collection = (ragCollectionName && ragCollectionName.value) ? ragCollectionName.value.trim() : 'default';
+      try {
+        const ret = await window.rag.retrieve({ query, collectionName: collection || 'default', topK: 5 });
+        if (ret.ok && ret.chunks && ret.chunks.length > 0) {
+          const retrievedText = ret.chunks.map((c) => c.content).filter(Boolean).join('\n\n---\n\n');
+          if (retrievedText) extraContext = (extraContext ? retrievedText + '\n\n' + extraContext : retrievedText);
+        }
+      } catch (_) {}
+    }
+    const context = extraContext ? systemPrompt + '\n\n' + extraContext : systemPrompt;
     if (ragStatus) ragStatus.textContent = 'Sending…';
     if (ragResponse) ragResponse.textContent = '';
     btnRagSend.disabled = true;
     try {
-      const result = await window.rag.query(serverUrl, query || 'Hello', context);
+      const result = await window.rag.query(serverUrl, context, [], query || 'Hello');
       if (result.ok) {
         if (ragResponse) ragResponse.textContent = result.content || '(no content)';
         if (ragStatus) ragStatus.textContent = 'Done.';
@@ -1276,5 +1575,65 @@ if (btnUpdate && window.app && typeof window.app.runUpdate === 'function') {
     }
     btnUpdate.disabled = false;
     if (footerUpdateStatus) setTimeout(() => { footerUpdateStatus.textContent = ''; }, 8000);
+  });
+}
+
+// ---- Settings: Config / env view ----
+const settingsConfigPreview = document.getElementById('settingsConfigPreview');
+const btnRefreshConfig = document.getElementById('btnRefreshConfig');
+const settingsContainerSelect = document.getElementById('settingsContainerSelect');
+const settingsContainerConfigPreview = document.getElementById('settingsContainerConfigPreview');
+
+function refreshSettingsConfigUI() {
+  if (settingsConfigPreview) {
+    try {
+      const payload = getCurrentSettings();
+      settingsConfigPreview.textContent = JSON.stringify(payload, null, 2);
+    } catch (e) {
+      settingsConfigPreview.textContent = 'Error: ' + (e && e.message ? e.message : String(e));
+    }
+  }
+  if (settingsContainerSelect) {
+    const sel = settingsContainerSelect;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Select container —</option>';
+    containers.forEach((c) => {
+      const opt = document.createElement('option');
+      opt.value = String(c.id);
+      opt.textContent = (c.tabBtn && c.tabBtn.textContent) || c.defaults.tabName || c.defaults.containerName || ('Container ' + c.id);
+      sel.appendChild(opt);
+    });
+    if (current && containers.some((c) => String(c.id) === current)) sel.value = current;
+    else if (settingsContainerConfigPreview) settingsContainerConfigPreview.textContent = 'Select a container above.';
+  }
+}
+
+if (btnRefreshConfig) btnRefreshConfig.addEventListener('click', refreshSettingsConfigUI);
+
+if (settingsContainerSelect && settingsContainerConfigPreview && window.app && typeof window.app.getDockerRunPreview === 'function') {
+  settingsContainerSelect.addEventListener('change', async () => {
+    const id = settingsContainerSelect.value;
+    if (!id) {
+      settingsContainerConfigPreview.textContent = 'Select a container above.';
+      return;
+    }
+    const entry = containers.find((c) => String(c.id) === id);
+    if (!entry) {
+      settingsContainerConfigPreview.textContent = 'Container not found.';
+      return;
+    }
+    const config = getConfig(entry.form, entry.defaults.containerName, entry.defaults.port);
+    settingsContainerConfigPreview.textContent = 'Loading…';
+    try {
+      const result = await window.app.getDockerRunPreview(config);
+      if (result.ok) {
+        const configJson = JSON.stringify(result.config, null, 2);
+        settingsContainerConfigPreview.textContent = '// Config (JSON)\n' + configJson + '\n\n// Docker command\n' + result.command;
+      } else {
+        settingsContainerConfigPreview.textContent = 'Error: ' + (result.error || 'Failed to build command');
+      }
+    } catch (err) {
+      settingsContainerConfigPreview.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+    }
   });
 }

@@ -37,6 +37,12 @@ Built with **Electron**. Linux (tested with `--no-sandbox` for environments with
 - **Profiles** — Save the full current setup (all containers, Logs name, Swap tab) as a named profile and load different profiles to switch between model/config setups quickly.
 - **Settings** — All form and Swap values persist in localStorage; profiles stored separately. Survives app updates and reinstalls.
 
+### Optional features (plugins)
+
+Some features are **optional installs** (plugins). The app runs fully without them; they add extra capability on top of the core container/model workflow.
+
+- **RAG** — Document ingestion (LangChain.js), vector store (LanceDB), and retrieval-augmented chat. The **RAG** tab is always available for chat with your llama.cpp server; to enable **document indexing and retrieval**, install the RAG plugin from the app directory: `npm run install-rag`, then restart. See **[docs/RAG.md](docs/RAG.md)** for install steps, embeddings (Hugging Face API key), and usage.
+
 ---
 
 ## Prerequisites

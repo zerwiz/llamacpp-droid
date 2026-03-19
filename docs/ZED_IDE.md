@@ -9,9 +9,9 @@ Use a **llama.cpp** server (started via **llamacpp droid**) as the LLM backend i
 1. Open **llamacpp droid** and go to a **Container** tab.
 2. Set **Host**, **Port** (e.g. `8080`), and your **Model path** (and other options if needed).
 3. Click **Run container** and wait until the status shows **Container "llamacpp" is running**.
-4. Note the **server URL** shown (e.g. `http://localhost:8080`) and use **Open WebUI** if you want to confirm the server is up in the browser.
+4. Note the **Server URL** shown on the container card (e.g. `http://localhost:8080`). Use **Open WebUI** if you want to confirm the server is up in the browser.
 
-The server will listen on `http://localhost:8080` (or `http://<host>:<port>` if you changed Host). Zed must be able to reach this URL (same machine = `localhost` is fine).
+The server will listen on that URL (e.g. `http://localhost:8080`). Zed must use this **exact** base URL + **`/v1`** so it talks to the same container. See **docs/CONTAINERS_AND_ZED.md** for other ways to start containers and how the app follows llama.cpp server options.
 
 ---
 
@@ -96,5 +96,6 @@ If Zed asks for an API key, use a placeholder such as `ollama`, `llama`, or `loc
 
 ## References
 
+- **docs/CONTAINERS_AND_ZED.md** — Ways to start containers, env/config, and making Zed use the same container URL.
 - [Zed — LLM providers (OpenAI API Compatible)](https://zed.dev/docs/ai/llm-providers)
 - [llama.cpp HTTP server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) (API and options)
